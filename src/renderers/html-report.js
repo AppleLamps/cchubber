@@ -466,19 +466,21 @@ ${inflection && inflection.multiplier >= 1.5 ? `
         ${modelRouting.estimatedSavings > 10 ? `<span class="text-[#c0c1ff] ml-3 font-mono">~${fmtCost(modelRouting.estimatedSavings)} potential savings</span>` : ''}
       </div>` : ''}
     </div>
+  </div>
+</section>
 
-    <!-- 9. RECOMMENDATIONS (placed alongside model distribution) -->
+    <!-- 9. RECOMMENDATIONS (full width, 2-column grid) -->
     ${recommendations.length > 0 ? `
-    <div class="bg-[#1b1c1d] p-8 rounded-xl border border-[rgba(70,69,84,0.15)]">
+<section class="bg-[#1b1c1d] p-8 rounded-xl border border-[rgba(70,69,84,0.15)]">
       <h3 class="text-xl font-bold text-[#e3e2e3] mb-6">Recommendations</h3>
-      <div class="space-y-3">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         ${recommendations.map((r, idx) => {
           const sev = sevColorMap[r.severity] || sevColorMap.info;
           const clipboardText = `CC Hubber flagged this about my setup:\n\n${r.title}\n\n${r.action}\n\nBefore making changes:\n1. Read the relevant files first to understand the current setup\n2. Do NOT remove or modify anything without asking me — some things are there intentionally\n3. Show me what each section/setting costs in tokens and let me decide what to keep\n4. Suggest optimizations (move to skills, use hooks, restructure) rather than deletion\n5. Do not break existing working functionality`;
           const b64 = Buffer.from(clipboardText).toString('base64');
           return `<div class="p-4 bg-[#0d0e0f] rounded-r-lg flex items-start gap-4" style="border-left:3px solid ${sev.border}">
             <div class="flex-1 min-w-0">
-              <div class="flex items-start justify-between gap-4">
+              <div class="flex items-start justify-between gap-3">
                 <p class="text-[13px] font-semibold text-[#e3e2e3]">${esc(r.title)}</p>
                 <div class="flex items-center gap-2 shrink-0">
                   ${r.savings ? `<span class="text-[10px] font-mono px-2 py-0.5 rounded" style="background:${sev.border}18;color:${sev.text}">${r.savings}</span>` : ''}
@@ -490,9 +492,7 @@ ${inflection && inflection.multiplier >= 1.5 ? `
           </div>`;
         }).join('')}
       </div>
-    </div>` : ''}
-  </div>
-</section>
+</section>` : ''}
 
 <!-- 7. COMMUNITY LEADERBOARD -->
 <section id="community-section" class="bg-[#1b1c1d] rounded-xl border border-[rgba(70,69,84,0.15)] overflow-hidden" style="display:none">
