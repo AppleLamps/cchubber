@@ -248,7 +248,7 @@ export function aggregateByProject(entries, claudeDir) {
     delete proj.sessions;
 
     // Decode the hash (which is the encoded path)
-    const decoded = decodeProjectHash(proj.hash);
+    const decoded = decodeProjectHash(proj.hash, claudeDir);
     proj.path = decoded.path;
     proj.name = decoded.name;
   }
@@ -266,47 +266,61 @@ function cleanModelName(name) {
 
 /**
  * Decode Claude Code's encoded project directory name into a readable path and name.
- * Format: C--Users-username-Documents-Projects-My-Project
- * Becomes: C:/Users/username/Documents/.../My-Project → name: "My-Project"
+ * Claude Code encodes paths by replacing path separators with hyphens.
+ * Windows: C--Users-username-Documents-Projects-My-Project
+ * Unix: -home-username-projects-my-project
+ *
+ * First tries Claude Code's internal project registry for accurate names.
  */
-function decodeProjectHash(hash) {
+function decodeProjectHash(hash, claudeDir) {
   if (!hash || hash === 'unknown') return { path: null, name: 'Unknown' };
 
-  // Replace the drive letter pattern: C-- → C:/
-  let decoded = hash.replace(/^([A-Z])--/, '$1:/');
-
-  // The rest uses - as separator, but some folder names have dashes too.
-  // Best heuristic: split on known path separators
-  // Common patterns: Users, Documents, Desktop, Projects, etc.
-  const pathSegments = decoded.split('-');
-
-  // Reconstruct a readable path
-  // The encoded format replaces / with - so we need to figure out boundaries
-  // Simple approach: reconstruct full path and extract last meaningful project name
-  const fullPath = decoded;
-
-  // Extract project name: take the last meaningful segments
-  // Skip common prefixes to find the project-specific part
-  const skipPrefixes = ['C:', 'Users', 'Documents', 'Desktop', 'Downloads', 'Obsidian', 'repos', 'projects', 'code', 'dev', 'src', 'home'];
-
-  let segments = hash.replace(/^[A-Z]--/, '').split('-');
-
-  // Find where the "interesting" name starts (after common path prefixes)
-  let nameStart = 0;
-  for (let i = 0; i < segments.length; i++) {
-    if (skipPrefixes.some(p => p.toLowerCase() === segments[i].toLowerCase())) {
-      nameStart = i + 1;
-    } else {
-      break;
-    }
+  // Try Claude Code's project registry first (most accurate)
+  if (claudeDir) {
+    try {
+      const registryPath = join(claudeDir, 'projects', hash, '.project.json');
+      if (existsSync(registryPath)) {
+        const reg = JSON.parse(readFileSync(registryPath, 'utf-8'));
+        if (reg.path || reg.name) {
+          const regPath = reg.path || null;
+          const regName = reg.name || (regPath ? regPath.split(/[\\/]/).pop() : null);
+          if (regName) return { path: regPath, name: regName };
+        }
+      }
+    } catch {}
   }
 
-  // Take the last 2-3 meaningful segments as the project name
-  const nameSegments = segments.slice(Math.max(nameStart, segments.length - 3));
-  const name = nameSegments.join(' ') || hash.slice(0, 12);
+  // Reconstruct path from the encoded hash
+  let path;
+  if (/^[A-Z]--/.test(hash)) {
+    // Windows: C--Users-username-Documents-Project → C:/Users/username/Documents/Project
+    path = hash.replace(/^([A-Z])--/, '$1:/').replace(/-/g, '/');
+  } else if (hash.startsWith('-')) {
+    // Unix absolute: -home-user-projects-foo → /home/user/projects/foo
+    path = hash.replace(/-/g, '/');
+  } else {
+    path = hash.replace(/-/g, '/');
+  }
 
-  // Reconstruct a shortened display path
-  const path = hash.replace(/^([A-Z])--/, '$1:/').replace(/-/g, '/');
+  // Extract project name from path: use the last non-generic segment
+  const pathParts = path.split('/').filter(Boolean);
+  const genericNames = new Set([
+    'users', 'home', 'documents', 'desktop', 'downloads', 'repos', 'projects',
+    'code', 'dev', 'src', 'workspace', 'work', 'github', 'gitlab', 'bitbucket',
+    'var', 'opt', 'usr', 'local', 'mnt', 'c:', 'd:', 'e:',
+  ]);
+
+  // Walk backwards to find the most specific meaningful segment(s)
+  let nameStart = pathParts.length;
+  for (let i = pathParts.length - 1; i >= 0; i--) {
+    if (genericNames.has(pathParts[i].toLowerCase())) break;
+    nameStart = i;
+  }
+
+  const nameSegments = pathParts.slice(nameStart);
+  const name = nameSegments.length > 0
+    ? nameSegments.slice(-2).join('/')  // At most 2 segments: "org/repo"
+    : pathParts.slice(-1)[0] || hash.slice(0, 12);
 
   return { path, name };
 }

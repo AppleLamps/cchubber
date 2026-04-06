@@ -1,12 +1,10 @@
 #!/usr/bin/env node
 
-import { resolve, join } from 'path';
-import { existsSync, writeFileSync } from 'fs';
+import { resolve, join, dirname } from 'path';
+import { existsSync, writeFileSync, readFileSync, mkdirSync, readdirSync, statSync } from 'fs';
 import { homedir, platform } from 'os';
 import { spawn } from 'child_process';
-import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
-import { dirname } from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PKG = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf-8'));
@@ -25,6 +23,7 @@ import { generateRecommendations } from '../analyzers/recommendations.js';
 import { detectInflectionPoints } from '../analyzers/inflection-detector.js';
 import { analyzeSessionIntelligence } from '../analyzers/session-intelligence.js';
 import { analyzeModelRouting } from '../analyzers/model-routing.js';
+import { analyzeEnvironment } from '../analyzers/environment-analyzer.js';
 import { renderHTML } from '../renderers/html-report.js';
 import { renderTerminal } from '../renderers/terminal-summary.js';
 import { shouldSendTelemetry, sendTelemetry } from '../telemetry.js';
@@ -36,6 +35,7 @@ const flags = {
   json: args.includes('--json'),
   noTelemetry: args.includes('--no-telemetry'),
   noOpen: args.includes('--no-open'),
+  watch: args.includes('--watch') || args.includes('-w'),
   output: (() => {
     const idx = args.indexOf('--output') !== -1 ? args.indexOf('--output') : args.indexOf('-o');
     return idx !== -1 && args[idx + 1] ? args[idx + 1] : null;
@@ -44,6 +44,11 @@ const flags = {
     const idx = args.indexOf('--days') !== -1 ? args.indexOf('--days') : args.indexOf('-d');
     const val = idx !== -1 && args[idx + 1] ? parseInt(args[idx + 1], 10) : 30;
     return isNaN(val) ? 30 : val;
+  })(),
+  budget: (() => {
+    const idx = args.indexOf('--budget');
+    const val = idx !== -1 && args[idx + 1] ? parseFloat(args[idx + 1]) : null;
+    return val !== null && !isNaN(val) ? val : null;
   })(),
 };
 
@@ -58,9 +63,10 @@ if (flags.help) {
   Usage: cchubber [options]
 
   Options:
-    --days, -d <n>     Default view period in report (default: 30)
-                       All data is always included; this sets the UI default
+    --days, -d <n>     Analyze last N days of data (default: 30)
     --output, -o <path> Output HTML report to custom path
+    --budget <n>       Warn if daily cost exceeds $n (persisted)
+    --watch, -w        Live monitoring mode (poll for changes)
     --no-open          Don't auto-open the report in browser
     --no-telemetry     Disable anonymous telemetry for this run
     --json             Output raw analysis as JSON
@@ -111,21 +117,30 @@ async function main() {
   const claudeMdStack = readClaudeMdStack(claudeDir);
   const oauthUsage = await readOAuthUsage(claudeDir);
 
+  // Filter JSONL entries by --days window before aggregation
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - flags.days);
+  const cutoffISO = cutoffDate.toISOString();
+  const filteredEntries = jsonlEntries.filter(e => {
+    const ts = e.timestamp || e.ts;
+    return !ts || ts >= cutoffISO;
+  });
+
   if (jsonlEntries.length === 0 && !statsCache) {
     console.error('  ✗ No usage data found. Use Claude Code first, then run CC Hubber.\n');
     process.exit(1);
   }
 
-  // Aggregate JSONL into daily + model + project views (primary data source)
-  const dailyFromJSONL = aggregateDaily(jsonlEntries);
-  const modelFromJSONL = aggregateByModel(jsonlEntries);
-  const projectBreakdown = aggregateByProject(jsonlEntries, claudeDir);
+  // Aggregate filtered JSONL into daily + model + project views
+  const dailyFromJSONL = aggregateDaily(filteredEntries);
+  const modelFromJSONL = aggregateByModel(filteredEntries);
+  const projectBreakdown = aggregateByProject(filteredEntries, claudeDir);
 
   // Fetch dynamic pricing (LiteLLM) with hardcoded fallback
   const pricing = await fetchPricing();
   const pricingSource = pricing === null ? 'hardcoded' : 'LiteLLM';
 
-  console.log(`  ✓ ${jsonlEntries.length.toLocaleString()} conversation entries parsed`);
+  console.log(`  ✓ ${jsonlEntries.length.toLocaleString()} total entries → ${filteredEntries.length.toLocaleString()} in last ${flags.days} days`);
   console.log(`  ✓ ${dailyFromJSONL.length} days of data found`);
   console.log(`  ✓ Pricing: ${pricingSource}`);
   console.log(`  ✓ ${sessionMeta.length} sessions found`);
@@ -134,22 +149,23 @@ async function main() {
   if (oauthUsage) console.log('  ✓ Live rate limits loaded');
   else console.log('  ○ Live rate limits skipped (no OAuth token)');
 
-  // Analyze — use ALL data for the HTML (client-side JS handles filtering)
-  // The --days flag sets the default view, but all data is embedded
   console.log('\n  Analyzing...\n');
-  const allTimeDays = 99999; // Pass everything to the report
-  const costAnalysis = analyzeUsage(statsCache, sessionMeta, allTimeDays, dailyFromJSONL, modelFromJSONL);
-  const cacheHealth = analyzeCacheHealth(statsCache, cacheBreaks, allTimeDays, dailyFromJSONL);
+  const costAnalysis = analyzeUsage(statsCache, sessionMeta, flags.days, dailyFromJSONL, modelFromJSONL);
+  const cacheHealth = analyzeCacheHealth(statsCache, cacheBreaks, flags.days, dailyFromJSONL);
   const anomalies = detectAnomalies(costAnalysis);
   const inflection = detectInflectionPoints(dailyFromJSONL);
   const sessionIntel = analyzeSessionIntelligence(sessionMeta, jsonlEntries);
   const modelRouting = analyzeModelRouting(costAnalysis, jsonlEntries);
   const recommendations = generateRecommendations(costAnalysis, cacheHealth, claudeMdStack, anomalies, inflection, sessionIntel, modelRouting, projectBreakdown);
+  const environment = analyzeEnvironment(claudeDir);
 
   if (inflection) console.log(`  ✓ Inflection: ${inflection.summary}`);
   if (sessionIntel.available) console.log(`  ✓ ${sessionIntel.totalSessions} sessions analyzed (${sessionIntel.avgDuration} min avg)`);
   if (modelRouting.available) console.log(`  ✓ Model routing: ${modelRouting.opusPct}% Opus, ${modelRouting.sonnetPct}% Sonnet`);
   console.log(`  ✓ ${projectBreakdown.length} projects detected`);
+  if (environment.available) {
+    console.log(`  ✓ Environment: ${environment.system.os}/${environment.system.arch}, ${environment.frameworks.length} frameworks, ${environment.aiTools.length} AI tools`);
+  }
 
   // Fetch community stats for leaderboard (non-blocking, 5s timeout, fails silently)
   let communityStats = null;
@@ -177,6 +193,7 @@ async function main() {
     oauthUsage,
     recommendations,
     communityStats,
+    environment,
     history: getHistory(),
   };
 
@@ -203,6 +220,39 @@ async function main() {
 
   renderTerminal(report);
 
+  // Cost alerts (--budget)
+  if (flags.budget !== null) {
+    const avgDaily = costAnalysis.totalCost / Math.max(dailyFromJSONL.length, 1);
+    const configDir = join(homedir(), '.cchubber');
+    if (!existsSync(configDir)) mkdirSync(configDir, { recursive: true });
+    const configPath = join(configDir, 'config.json');
+    let config = {};
+    try { config = JSON.parse(readFileSync(configPath, 'utf-8')); } catch {}
+    config.budget = flags.budget;
+    writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+
+    console.log(`  Budget: $${flags.budget.toFixed(2)}/day (saved to ${configPath})`);
+    if (avgDaily > flags.budget) {
+      console.log(`  ⚠ OVER BUDGET: avg $${avgDaily.toFixed(2)}/day exceeds $${flags.budget.toFixed(2)} limit`);
+    } else {
+      console.log(`  ✓ Under budget: avg $${avgDaily.toFixed(2)}/day`);
+    }
+    console.log('');
+  } else {
+    // Check saved budget from config
+    try {
+      const configPath = join(homedir(), '.cchubber', 'config.json');
+      const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+      if (config.budget) {
+        const avgDaily = costAnalysis.totalCost / Math.max(dailyFromJSONL.length, 1);
+        if (avgDaily > config.budget) {
+          console.log(`  ⚠ OVER BUDGET: avg $${avgDaily.toFixed(2)}/day exceeds $${config.budget.toFixed(2)} saved limit`);
+          console.log('');
+        }
+      }
+    } catch {}
+  }
+
   // Anonymous telemetry (opt out: --no-telemetry or CC_HUBBER_TELEMETRY=0)
   if (shouldSendTelemetry(flags)) {
     console.log('  ○ Sharing anonymous stats...');
@@ -210,7 +260,16 @@ async function main() {
     console.log('  ✓ Stats shared (opt out: --no-telemetry)');
   }
 
-  const outputPath = flags.output || join(process.cwd(), 'cchubber-report.html');
+  // Default report output: ~/.cchubber/reports/cchubber-report-YYYY-MM-DD.html
+  let outputPath;
+  if (flags.output) {
+    outputPath = flags.output;
+  } else {
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const reportsDir = join(homedir(), '.cchubber', 'reports');
+    if (!existsSync(reportsDir)) mkdirSync(reportsDir, { recursive: true });
+    outputPath = join(reportsDir, `cchubber-report-${dateStr}.html`);
+  }
   const html = renderHTML(report);
   writeFileSync(outputPath, html, 'utf-8');
   console.log(`\n  ✓ Report saved to: ${outputPath}`);
@@ -241,7 +300,76 @@ function openInBrowser(filePath) {
   }
 }
 
-main().catch((err) => {
-  console.error('\n  ✗ Error:', err.message);
-  process.exit(1);
-});
+/**
+ * Watch mode: poll Claude Code JSONL files and print live cost/cache updates.
+ * This is a stub — future versions will use a rich terminal UI (blessed/ink).
+ */
+async function watchMode() {
+  const claudeDir = getClaudeDir();
+  if (!existsSync(claudeDir)) {
+    console.error('  ✗ Claude Code data directory not found.');
+    process.exit(1);
+  }
+
+  const pricing = await fetchPricing();
+  console.log(`
+    /\\  ◉  /\\
+   /  \\ ~ /  \\   CC Hubber WATCH MODE
+   \\  /   \\  /   Polling every 10s... (Ctrl+C to stop)
+    \\/     \\/
+  `);
+
+  let lastEntryCount = 0;
+  const pollInterval = 10_000;
+
+  const poll = () => {
+    try {
+      const entries = readAllJSONL(claudeDir);
+      const newCount = entries.length;
+
+      if (newCount !== lastEntryCount) {
+        const now = new Date().toLocaleTimeString();
+        const daily = aggregateDaily(entries);
+        const models = aggregateByModel(entries);
+        const costAnalysis = analyzeUsage(null, [], 1, daily, models);
+
+        const todayCost = daily.length > 0 ? daily[daily.length - 1] : null;
+        const todayStr = todayCost ? `$${(todayCost.inputTokens * 0.000003 + todayCost.outputTokens * 0.000015).toFixed(4)}` : '$0.00';
+
+        console.log(`  [${now}] ${newCount} entries (+${newCount - lastEntryCount}) | Today: ${todayStr} | Grade: ${costAnalysis.grade || '?'}`);
+
+        // Check budget
+        try {
+          const configPath = join(homedir(), '.cchubber', 'config.json');
+          const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+          if (config.budget) {
+            const avgDaily = costAnalysis.totalCost / Math.max(daily.length, 1);
+            if (avgDaily > config.budget) {
+              console.log(`  ⚠ BUDGET ALERT: $${avgDaily.toFixed(2)}/day > $${config.budget.toFixed(2)} limit`);
+            }
+          }
+        } catch {}
+
+        lastEntryCount = newCount;
+      }
+    } catch (err) {
+      console.error(`  ✗ Poll error: ${err.message}`);
+    }
+  };
+
+  poll();
+  setInterval(poll, pollInterval);
+}
+
+// Entry point
+if (flags.watch) {
+  watchMode().catch((err) => {
+    console.error('\n  ✗ Watch error:', err.message);
+    process.exit(1);
+  });
+} else {
+  main().catch((err) => {
+    console.error('\n  ✗ Error:', err.message);
+    process.exit(1);
+  });
+}

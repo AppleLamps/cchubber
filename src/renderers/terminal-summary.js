@@ -18,7 +18,7 @@ const c = {
 };
 
 export function renderTerminal(report) {
-  const { costAnalysis, cacheHealth, anomalies, claudeMdStack, recommendations, inflection, modelRouting, sessionIntel } = report;
+  const { costAnalysis, cacheHealth, anomalies, claudeMdStack, recommendations, inflection, modelRouting, sessionIntel, environment } = report;
 
   const grade = cacheHealth.grade || { letter: '?', label: 'Unknown' };
   const totalCost = costAnalysis.totalCost || 0;
@@ -49,6 +49,32 @@ export function renderTerminal(report) {
     for (const a of anomalies.anomalies.slice(0, 3)) {
       console.log(`    ${c.dim}${a.date}${c.reset}  ${c.white}$${a.cost.toFixed(0)}${c.reset}  ${c.red}+$${a.deviation.toFixed(0)}${c.reset}`);
     }
+  }
+
+  // Environment profile
+  if (environment?.available) {
+    console.log(`\n  ${c.bold}Environment${c.reset}`);
+    console.log(`    ${c.dim}System:${c.reset} ${environment.system.os}/${environment.system.arch} · ${environment.system.cpuCores} cores · ${environment.system.ramGB}GB RAM · Node ${environment.system.nodeVersion}`);
+    console.log(`    ${c.dim}Editor:${c.reset} ${environment.system.editor} · Shell: ${environment.system.shell}`);
+    if (environment.git.isGitRepo) {
+      console.log(`    ${c.dim}Git:${c.reset} ${environment.git.host} · ${environment.git.commits} commits · ${environment.git.branches} branches · ${environment.git.contributors} contributors`);
+    }
+    if (environment.frameworks.length > 0) {
+      console.log(`    ${c.dim}Stack:${c.reset} ${environment.frameworks.join(', ')}`);
+    }
+    if (environment.languages.length > 0) {
+      console.log(`    ${c.dim}Files:${c.reset} ${environment.languages.map(l => `${l.count} .${l.ext}`).join(', ')}`);
+    }
+    if (environment.aiTools.length > 0) {
+      console.log(`    ${c.dim}AI Tools:${c.reset} ${environment.aiTools.join(', ')}`);
+    }
+    if (environment.claude.mcpServerCount > 0) {
+      console.log(`    ${c.dim}MCP:${c.reset} ${environment.claude.mcpServerCount} servers (${environment.claude.mcpServers.join(', ')})`);
+    }
+    if (environment.maturitySignals.length > 0) {
+      console.log(`    ${c.dim}Maturity:${c.reset} ${environment.maturitySignals.join(' · ')}`);
+    }
+    console.log(`    ${c.dim}Claude:${c.reset} ${environment.claude.totalConversations} conversations · ${environment.claude.jsonlTotalMB}MB logs · ${environment.claude.authMethod} auth`);
   }
 
   // Recommendations (top 3, compact)
