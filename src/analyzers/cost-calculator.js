@@ -89,7 +89,11 @@ function calculateCost(modelName, tokens) {
 
 export function analyzeUsage(statsCache, sessionMeta, days, dailyFromJSONL, modelFromJSONL) {
   const cutoffDate = new Date();
-  cutoffDate.setDate(cutoffDate.getDate() - days);
+  if (days > 0) {
+    cutoffDate.setDate(cutoffDate.getDate() - days);
+  } else {
+    cutoffDate.setFullYear(2000);
+  }
   const cutoffStr = cutoffDate.toISOString().split('T')[0];
 
   // PRIMARY: Use JSONL aggregated data (has actual token counts, we calculate costs)

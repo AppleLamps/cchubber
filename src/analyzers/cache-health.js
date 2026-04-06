@@ -1,7 +1,10 @@
 export function analyzeCacheHealth(statsCache, cacheBreaks, days, dailyFromJSONL) {
   const cutoffDate = new Date();
-  cutoffDate.setDate(cutoffDate.getDate() - days);
-
+  if (days > 0) {
+    cutoffDate.setDate(cutoffDate.getDate() - days);
+  } else {
+    cutoffDate.setFullYear(2000);
+  }
   // Cache break analysis
   const reasonCounts = {};
   let totalBreaks = 0;
