@@ -5,18 +5,18 @@
 [![npm downloads](https://img.shields.io/npm/dt/cchubber?color=c0c1ff&label=installs)](https://www.npmjs.com/package/cchubber)
 [![npm version](https://img.shields.io/npm/v/cchubber?color=ffb690)](https://www.npmjs.com/package/cchubber)
 
-Your Claude Code usage, diagnosed. One command.
+Your AI coding tools, diagnosed. One command.
 
 ```bash
 npx cchubber
 ```
 
-Reads your local data, generates an HTML report saved to `~/.cchubber/reports/`. No API keys, no accounts. Network requests are limited to fetching pricing data, community benchmarks, and optional telemetry.
+Reads your local data from Claude Code, Cursor, Codex CLI, and GitHub Copilot CLI. Generates an HTML report saved to `~/.cchubber/reports/`. No API keys, no accounts. Network requests are limited to fetching pricing data, community benchmarks, and optional telemetry.
 
 ### Options
 
 ```
---days, -d <n>     Analyze last N days of data (default: 30)
+--days, -d <n>     Analyze last N days of data (default: all-time)
 --output, -o <path> Output HTML report to custom path
 --budget <n>       Warn if daily cost exceeds $n (persisted)
 --watch, -w        Live monitoring mode (poll for changes)
@@ -49,6 +49,7 @@ A single HTML report that tells you three things: what you spent, why you spent 
 - Session intelligence: duration stats, tool usage, activity heatmap
 - Model routing analysis (93% Opus? Your limits would last 3x longer on Sonnet)
 - **Environment profile:** system specs, git stats, tech stack, AI tools, Claude Code config
+- **Multi-tool analysis:** Reads usage data from Cursor, Codex CLI, and GitHub Copilot CLI alongside Claude Code
 - 8 actionable recommendations, each with estimated usage savings
 - **Budget alerts:** `--budget 20` warns when avg daily cost exceeds $20
 
@@ -75,7 +76,7 @@ npm install -g cchubber
 cchubber
 ```
 
-Node.js 18+. Works on macOS, Windows, Linux.
+Node.js 18+ (22+ for multi-tool analysis). Works on macOS, Windows, Linux.
 
 ## The cache bug (March 2026)
 
@@ -113,6 +114,8 @@ The number you see is what you'd pay on the API tier for the same usage. Useful 
 
 Everything is local. CC Hubber reads files that already exist on your machine.
 
+**Claude Code:**
+
 | Source | Path | What it contains |
 |--------|------|-----------------|
 | Conversations | `~/.claude/projects/*/` | Token counts per message, per model |
@@ -121,6 +124,16 @@ Everything is local. CC Hubber reads files that already exist on your machine.
 | Cache breaks | `~/.claude/tmp/cache-break-*.diff` | Why your prompt cache broke |
 | CLAUDE.md | `~/.claude/CLAUDE.md` + project-level | File sizes, section breakdown, cost per message |
 | Rate limits | `~/.claude/.credentials.json` | Live 5-hour and 7-day utilization |
+
+**Other AI tools** (requires Node.js 22+):
+
+| Tool | Source | Metrics |
+|------|--------|---------|
+| Cursor | `state.vscdb` (SQLite) | Daily lines suggested/accepted, accept rate |
+| Codex CLI | `logs_1.sqlite` (OpenTelemetry) | Token counts by model (input/output/cached/reasoning) |
+| GitHub Copilot CLI | `session-store.db` (SQLite) | Sessions, turns, files edited per repo |
+
+Also detects installed versions of: Cline, Windsurf, Continue, Gemini CLI.
 
 ## Compared to ccusage
 
@@ -152,4 +165,6 @@ Originally built by [@azkhh](https://x.com/asmirkn). Shipped fast with [Mover OS
 - **`--watch` live mode:** Polls JSONL files every 10s with live cost/grade updates
 - **Report privacy:** Default output moved from cwd to `~/.cchubber/reports/` (no more leaking reports in shared directories)
 - **Better project decoding:** Tries Claude Code's project registry first; handles Unix absolute paths; smarter boundary detection
-- **Test suite:** 26 tests using `node:test` covering collectors, aggregation, telemetry, and environment analysis
+- **Multi-tool analysis:** Reads Cursor (line stats), Codex CLI (token events), and Copilot CLI (session engagement) from local SQLite databases; shown as "AI Tool Overview" in report
+- **AI tool detection:** Finds installed versions of Claude Code, Cursor, Cline, Windsurf, Continue, Codex CLI, Gemini CLI, and GitHub Copilot
+- **Test suite:** 27 tests using `node:test` covering collectors, aggregation, telemetry, and environment analysis
