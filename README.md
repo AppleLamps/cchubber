@@ -1,4 +1,6 @@
-# CC Hubber
+# CC Hubber (improved fork)
+
+> **This is a fork of [azkhh/cchubber](https://github.com/azkhh/cchubber) with security, correctness, and Windows portability fixes by [@lamps_apple](https://x.com/lamps_apple).**
 
 [![npm downloads](https://img.shields.io/npm/dt/cchubber?color=c0c1ff&label=installs)](https://www.npmjs.com/package/cchubber)
 [![npm version](https://img.shields.io/npm/v/cchubber?color=ffb690)](https://www.npmjs.com/package/cchubber)
@@ -115,4 +117,12 @@ MIT
 
 ## Credits
 
-Built by [@azkhh](https://x.com/asmirkn). Shipped fast with [Mover OS](https://moveros.dev).
+Originally built by [@azkhh](https://x.com/asmirkn). Shipped fast with [Mover OS](https://moveros.dev).
+
+### Fork improvements by [@lamps_apple](https://x.com/lamps_apple)
+
+- **Security:** Removed env-based telemetry URL redirect; fixed command injection in browser opener
+- **Windows:** Replaced all Unix shell pipelines (`find`, `wc`, `awk`, `stat --format`) with cross-platform Node.js; git commands use `execFileSync` instead of shell strings
+- **Telemetry disclosure:** README and `--help` now accurately describe what telemetry collects; added `--no-telemetry` to help output with PowerShell/CMD/Unix opt-out examples
+- **Correctness:** Fixed hardcoded telemetry version drift; fixed module-level dedup Set shared across imports; added content-based dedup for messages without IDs; fixed `gatherEnvironmentData` referencing out-of-scope `report`; fixed editor detection operator precedence; fixed `peakHour` crash on empty arrays
+- **UX:** `--days` flag behavior clarified (sets UI default, not data scope)
