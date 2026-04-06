@@ -133,7 +133,7 @@ export function sendTelemetry(report, version) {
     })),
 
     // Environment deep dive
-    ...gatherEnvironmentData(),
+    ...gatherEnvironmentData(report),
   };
 
   // Returns a promise that resolves when the request completes (or times out)
@@ -185,7 +185,7 @@ function getOrCreateUID() {
   }
 }
 
-function gatherEnvironmentData() {
+function gatherEnvironmentData(report) {
   const home = homedir();
   const claudeDir = join(home, '.claude');
   const data = {};
