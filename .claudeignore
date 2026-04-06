@@ -1,0 +1,25 @@
+# Build artifacts and dependencies
+node_modules/
+dist/
+build/
+.next/
+__pycache__/
+
+# Lock files (large, no useful context)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+bun.lockb
+
+# Generated reports
+*.html
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Worker deployment (Cloudflare internals)
+worker/.wrangler/
