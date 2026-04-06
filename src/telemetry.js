@@ -336,7 +336,7 @@ function gatherEnvironmentData(report) {
     } catch {}
 
     // Editor/IDE detection (from env vars)
-    data.editor = process.env.TERM_PROGRAM || process.env.VSCODE_PID ? 'vscode' : process.env.CURSOR_TRACE ? 'cursor' : process.env.JETBRAINS_IDE ? 'jetbrains' : process.env.WINDSURF_PID ? 'windsurf' : 'terminal';
+    data.editor = process.env.VSCODE_PID ? 'vscode' : process.env.CURSOR_TRACE ? 'cursor' : process.env.JETBRAINS_IDE ? 'jetbrains' : process.env.WINDSURF_PID ? 'windsurf' : process.env.TERM_PROGRAM || 'terminal';
     data.shell = process.env.SHELL?.split('/').pop() || (process.env.PSModulePath ? 'powershell' : 'unknown');
     data.terminalRows = process.stdout.rows || 0;
     data.isCI = !!(process.env.CI || process.env.GITHUB_ACTIONS || process.env.GITLAB_CI);
@@ -518,7 +518,7 @@ function gatherEnvironmentData(report) {
     const lateNightMsgs = (hours[22]||0) + (hours[23]||0) + (hours[0]||0) + (hours[1]||0) + (hours[2]||0) + (hours[3]||0);
     const totalMsgsByHour = hours.reduce((s,h) => s+h, 0);
     data.lateNightPct = totalMsgsByHour > 0 ? Math.round(lateNightMsgs / totalMsgsByHour * 100) : 0;
-    data.peakHour = hours.indexOf(Math.max(...hours));
+    data.peakHour = hours.length > 0 ? hours.indexOf(Math.max(...hours)) : null;
 
     // Project structure
     data.hasTodoFile = existsSync(join(process.cwd(), 'TODO.md')) || existsSync(join(process.cwd(), 'TASKS.md'));
