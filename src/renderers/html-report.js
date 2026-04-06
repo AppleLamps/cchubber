@@ -4,7 +4,7 @@ function esc(s) {
 }
 
 export function renderHTML(report) {
-  const { costAnalysis, cacheHealth, anomalies, inflection, sessionIntel, modelRouting, projectBreakdown, claudeMdStack, oauthUsage, recommendations, generatedAt } = report;
+  const { costAnalysis, cacheHealth, anomalies, inflection, sessionIntel, modelRouting, projectBreakdown, claudeMdStack, oauthUsage, recommendations, generatedAt, multiTool } = report;
 
   const dailyCosts = costAnalysis.dailyCosts || [];
   const grade = cacheHealth.grade || { letter: '?', color: '#666', label: 'Unknown' };
@@ -530,6 +530,99 @@ ${inflection && inflection.multiplier >= 1.5 ? `
     </table>
   </div>
 </section>
+
+<!-- 7.5 MULTI-TOOL OVERVIEW -->
+${multiTool && multiTool.length > 0 ? `
+<section class="bg-[#1b1c1d] rounded-xl border border-[rgba(70,69,84,0.15)] overflow-hidden">
+  <div class="px-8 py-6 border-b border-[rgba(70,69,84,0.15)]">
+    <h3 class="text-xl font-bold text-[#e3e2e3]">AI Tool Overview</h3>
+    <p class="text-xs text-[#908fa0] mt-1">Usage data from all detected AI coding tools on this machine</p>
+  </div>
+  <div class="grid grid-cols-1 md:grid-cols-${Math.min(multiTool.length + 1, 3)} gap-0" style="background:rgba(70,69,84,0.15);">
+    <!-- Claude Code card (always first) -->
+    <div class="bg-[#1b1c1d] p-6">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-10 h-10 rounded-lg bg-[#c0c1ff]/10 flex items-center justify-center text-lg">🟣</div>
+        <div>
+          <p class="font-bold text-[#e3e2e3]">Claude Code</p>
+          <p class="text-[10px] text-[#908fa0]">tokens · cost · sessions</p>
+        </div>
+      </div>
+      <div class="space-y-2 text-sm">
+        <div class="flex justify-between"><span class="text-[#908fa0]">Total Cost</span><span class="text-[#e3e2e3] font-mono">$${(costAnalysis.totalCost || 0).toFixed(2)}</span></div>
+        <div class="flex justify-between"><span class="text-[#908fa0]">Active Days</span><span class="text-[#e3e2e3] font-mono">${costAnalysis.activeDays || 0}</span></div>
+        <div class="flex justify-between"><span class="text-[#908fa0]">Cache Ratio</span><span class="text-[#e3e2e3] font-mono">${cacheHealth.efficiencyRatio ? cacheHealth.efficiencyRatio.toLocaleString() + ':1' : 'N/A'}</span></div>
+        <div class="flex justify-between"><span class="text-[#908fa0]">Projects</span><span class="text-[#e3e2e3] font-mono">${projectBreakdown ? projectBreakdown.length : 0}</span></div>
+      </div>
+    </div>
+${multiTool.map(tool => {
+  if (tool.metricType === 'lines') {
+    return `    <!-- ${esc(tool.tool)} -->
+    <div class="bg-[#1b1c1d] p-6">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-10 h-10 rounded-lg bg-[#c0c1ff]/10 flex items-center justify-center text-lg">🔵</div>
+        <div>
+          <p class="font-bold text-[#e3e2e3]">${esc(tool.tool)}</p>
+          <p class="text-[10px] text-[#908fa0]">lines suggested · accepted</p>
+        </div>
+      </div>
+      <div class="space-y-2 text-sm">
+        <div class="flex justify-between"><span class="text-[#908fa0]">Lines Accepted</span><span class="text-[#e3e2e3] font-mono">${tool.summary.totalLines.toLocaleString()}</span></div>
+        <div class="flex justify-between"><span class="text-[#908fa0]">Accept Rate</span><span class="text-[#e3e2e3] font-mono">${tool.summary.acceptRate}%</span></div>
+        <div class="flex justify-between"><span class="text-[#908fa0]">Active Days</span><span class="text-[#e3e2e3] font-mono">${tool.summary.activeDays}</span></div>
+        <div class="flex justify-between"><span class="text-[#908fa0]">Composer</span><span class="text-[#e3e2e3] font-mono">${tool.summary.composer.acceptedLines.toLocaleString()} lines</span></div>
+        <div class="flex justify-between"><span class="text-[#908fa0]">Tab Complete</span><span class="text-[#e3e2e3] font-mono">${tool.summary.tab.acceptedLines.toLocaleString()} lines</span></div>
+        <div class="flex justify-between"><span class="text-[#908fa0]">Period</span><span class="text-[#e3e2e3] font-mono text-[11px]">${esc(tool.summary.dateRange.from)} → ${esc(tool.summary.dateRange.to)}</span></div>
+      </div>
+    </div>`;
+  }
+  if (tool.metricType === 'tokens') {
+    const total = tool.summary.totalInputTokens + tool.summary.totalOutputTokens;
+    const models = Object.keys(tool.modelTotals || {}).map(m => m.replace(/\s+slug=.*/, '')).join(', ');
+    return `    <!-- ${esc(tool.tool)} -->
+    <div class="bg-[#1b1c1d] p-6">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-10 h-10 rounded-lg bg-[#c0c1ff]/10 flex items-center justify-center text-lg">🟢</div>
+        <div>
+          <p class="font-bold text-[#e3e2e3]">${esc(tool.tool)}${tool.partial ? ' <span class="text-[10px] text-[#908fa0]">(partial)</span>' : ''}</p>
+          <p class="text-[10px] text-[#908fa0]">tokens · sessions</p>
+        </div>
+      </div>
+      <div class="space-y-2 text-sm">
+        <div class="flex justify-between"><span class="text-[#908fa0]">Total Tokens</span><span class="text-[#e3e2e3] font-mono">${total.toLocaleString()}</span></div>
+        <div class="flex justify-between"><span class="text-[#908fa0]">Sessions</span><span class="text-[#e3e2e3] font-mono">${tool.summary.sessionCount}</span></div>
+        <div class="flex justify-between"><span class="text-[#908fa0]">Token Events</span><span class="text-[#e3e2e3] font-mono">${tool.summary.totalEvents}</span></div>
+        <div class="flex justify-between"><span class="text-[#908fa0]">Cached</span><span class="text-[#e3e2e3] font-mono">${tool.summary.totalCachedTokens.toLocaleString()}</span></div>
+        ${models ? `<div class="flex justify-between"><span class="text-[#908fa0]">Models</span><span class="text-[#e3e2e3] font-mono text-[11px]">${esc(models)}</span></div>` : ''}
+        ${tool.summary.dateRange ? `<div class="flex justify-between"><span class="text-[#908fa0]">Period</span><span class="text-[#e3e2e3] font-mono text-[11px]">${esc(tool.summary.dateRange.from)} → ${esc(tool.summary.dateRange.to)}</span></div>` : ''}
+      </div>
+    </div>`;
+  }
+  if (tool.metricType === 'engagement') {
+    return `    <!-- ${esc(tool.tool)} -->
+    <div class="bg-[#1b1c1d] p-6">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-10 h-10 rounded-lg bg-[#c0c1ff]/10 flex items-center justify-center text-lg">⚪</div>
+        <div>
+          <p class="font-bold text-[#e3e2e3]">${esc(tool.tool)}</p>
+          <p class="text-[10px] text-[#908fa0]">sessions · engagement</p>
+        </div>
+      </div>
+      <div class="space-y-2 text-sm">
+        <div class="flex justify-between"><span class="text-[#908fa0]">Sessions</span><span class="text-[#e3e2e3] font-mono">${tool.summary.totalSessions}</span></div>
+        <div class="flex justify-between"><span class="text-[#908fa0]">Total Turns</span><span class="text-[#e3e2e3] font-mono">${tool.summary.totalTurns}</span></div>
+        <div class="flex justify-between"><span class="text-[#908fa0]">Avg Turns/Session</span><span class="text-[#e3e2e3] font-mono">${tool.summary.avgTurnsPerSession}</span></div>
+        <div class="flex justify-between"><span class="text-[#908fa0]">Files Edited</span><span class="text-[#e3e2e3] font-mono">${tool.summary.filesEdited}</span></div>
+        <div class="flex justify-between"><span class="text-[#908fa0]">Repos</span><span class="text-[#e3e2e3] font-mono">${tool.summary.repositories.length}</span></div>
+        ${tool.summary.dateRange ? `<div class="flex justify-between"><span class="text-[#908fa0]">Period</span><span class="text-[#e3e2e3] font-mono text-[11px]">${esc(tool.summary.dateRange.from)} → ${esc(tool.summary.dateRange.to)}</span></div>` : ''}
+      </div>
+    </div>`;
+  }
+  return '';
+}).join('\n')}
+  </div>
+</section>
+` : ''}
 
 <!-- 8. PROJECTS TABLE -->
 ${projectBreakdown && projectBreakdown.length > 0 ? `

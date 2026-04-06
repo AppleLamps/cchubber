@@ -18,7 +18,7 @@ const c = {
 };
 
 export function renderTerminal(report) {
-  const { costAnalysis, cacheHealth, anomalies, claudeMdStack, recommendations, inflection, modelRouting, sessionIntel, environment } = report;
+  const { costAnalysis, cacheHealth, anomalies, claudeMdStack, recommendations, inflection, modelRouting, sessionIntel, environment, multiTool } = report;
 
   const grade = cacheHealth.grade || { letter: '?', label: 'Unknown' };
   const totalCost = costAnalysis.totalCost || 0;
@@ -76,6 +76,28 @@ export function renderTerminal(report) {
       console.log(`    ${c.dim}Maturity:${c.reset} ${environment.maturitySignals.join(' · ')}`);
     }
     console.log(`    ${c.dim}Claude:${c.reset} ${environment.claude.totalConversations} conversations · ${environment.claude.jsonlTotalMB}MB logs · ${environment.claude.authMethod} auth`);
+  }
+
+  // Multi-tool overview
+  if (multiTool && multiTool.length > 0) {
+    console.log(`\n  ${c.bold}Other AI Tools${c.reset}`);
+    for (const tool of multiTool) {
+      if (tool.metricType === 'lines') {
+        const rate = tool.summary.acceptRate;
+        console.log(`    ${c.cyan}◉${c.reset} ${c.white}${tool.tool}${c.reset} · ${tool.summary.activeDays} active days · ${tool.summary.totalLines.toLocaleString()} lines accepted (${rate}% accept rate)`);
+        console.log(`      ${c.dim}Composer: ${tool.summary.composer.acceptedLines.toLocaleString()} lines · Tab: ${tool.summary.tab.acceptedLines.toLocaleString()} lines · ${tool.summary.dateRange.from} → ${tool.summary.dateRange.to}${c.reset}`);
+      } else if (tool.metricType === 'tokens') {
+        const total = tool.summary.totalInputTokens + tool.summary.totalOutputTokens;
+        const models = Object.keys(tool.modelTotals || {}).join(', ');
+        console.log(`    ${c.cyan}◉${c.reset} ${c.white}${tool.tool}${c.reset}${tool.partial ? ` ${c.dim}(partial)${c.reset}` : ''} · ${tool.summary.sessionCount} sessions · ${total.toLocaleString()} tokens`);
+        if (models) console.log(`      ${c.dim}Models: ${models}${c.reset}`);
+      } else if (tool.metricType === 'engagement') {
+        console.log(`    ${c.cyan}◉${c.reset} ${c.white}${tool.tool}${c.reset} · ${tool.summary.totalSessions} sessions · ${tool.summary.totalTurns} turns · ${tool.summary.avgTurnsPerSession} avg turns/session`);
+        if (tool.summary.repositories.length > 0) {
+          console.log(`      ${c.dim}Repos: ${tool.summary.repositories.join(', ')}${c.reset}`);
+        }
+      }
+    }
   }
 
   // Recommendations (top 3, compact)

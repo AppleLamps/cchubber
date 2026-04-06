@@ -1,5 +1,12 @@
 #!/usr/bin/env node
 
+// Suppress experimental SQLite warning (used for multi-tool readers)
+const _origEmit = process.emit;
+process.emit = function (event, ...args) {
+  if (event === 'warning' && args[0]?.name === 'ExperimentalWarning' && args[0]?.message?.includes('SQLite')) return false;
+  return _origEmit.call(this, event, ...args);
+};
+
 import { resolve, join, dirname } from 'path';
 import { existsSync, writeFileSync, readFileSync, mkdirSync, readdirSync, statSync } from 'fs';
 import { homedir, platform } from 'os';
@@ -28,6 +35,9 @@ import { renderHTML } from '../renderers/html-report.js';
 import { renderTerminal } from '../renderers/terminal-summary.js';
 import { shouldSendTelemetry, sendTelemetry } from '../telemetry.js';
 import { saveRun, getDelta, getHistory } from '../history.js';
+import { readCursorUsage } from '../readers/cursor-reader.js';
+import { readCodexUsage } from '../readers/codex-reader.js';
+import { readCopilotUsage } from '../readers/copilot-reader.js';
 
 const args = process.argv.slice(2);
 const flags = {
@@ -154,6 +164,33 @@ async function main() {
   if (oauthUsage) console.log('  ✓ Live rate limits loaded');
   else console.log('  ○ Live rate limits skipped (no OAuth token)');
 
+  // Multi-tool data (Cursor, Codex, Copilot CLI)
+  console.log('\n  Scanning other AI tools...\n');
+  const multiTool = [];
+
+  const cursorData = await readCursorUsage();
+  if (cursorData) {
+    multiTool.push(cursorData);
+    console.log(`  ✓ Cursor: ${cursorData.summary.activeDays} active days, ${cursorData.summary.totalLines.toLocaleString()} lines accepted`);
+  }
+
+  const codexData = await readCodexUsage();
+  if (codexData) {
+    multiTool.push(codexData);
+    const totalTokens = codexData.summary.totalInputTokens + codexData.summary.totalOutputTokens;
+    console.log(`  ✓ Codex CLI: ${codexData.summary.sessionCount} sessions, ${totalTokens.toLocaleString()} tokens (${codexData.summary.totalEvents} events${codexData.partial ? ', partial' : ''})`);
+  }
+
+  const copilotData = await readCopilotUsage();
+  if (copilotData) {
+    multiTool.push(copilotData);
+    console.log(`  ✓ Copilot CLI: ${copilotData.summary.totalSessions} sessions, ${copilotData.summary.totalTurns} turns, ${copilotData.summary.filesEdited} files edited`);
+  }
+
+  if (multiTool.length === 0) {
+    console.log('  ○ No other AI tool data found');
+  }
+
   console.log('\n  Analyzing...\n');
   const costAnalysis = analyzeUsage(statsCache, sessionMeta, flags.days, dailyFromJSONL, modelFromJSONL);
   const cacheHealth = analyzeCacheHealth(statsCache, cacheBreaks, flags.days, dailyFromJSONL);
@@ -199,6 +236,7 @@ async function main() {
     recommendations,
     communityStats,
     environment,
+    multiTool,
     history: getHistory(),
   };
 
