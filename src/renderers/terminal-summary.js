@@ -66,7 +66,8 @@ export function renderTerminal(report) {
       console.log(`    ${c.dim}Files:${c.reset} ${environment.languages.map(l => `${l.count} .${l.ext}`).join(', ')}`);
     }
     if (environment.aiTools.length > 0) {
-      console.log(`    ${c.dim}AI Tools:${c.reset} ${environment.aiTools.join(', ')}`);
+      const toolStr = environment.aiTools.map(t => typeof t === 'string' ? t : `${t.name} ${t.version}`).join(', ');
+      console.log(`    ${c.dim}AI Tools:${c.reset} ${toolStr}`);
     }
     if (environment.claude.mcpServerCount > 0) {
       console.log(`    ${c.dim}MCP:${c.reset} ${environment.claude.mcpServerCount} servers (${environment.claude.mcpServers.join(', ')})`);

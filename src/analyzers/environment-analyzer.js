@@ -40,18 +40,8 @@ export function analyzeEnvironment(claudeDir) {
   if (project.isRust) frameworks.push('Rust');
   if (project.isGo) frameworks.push('Go');
 
-  const aiTools = [];
-  if (tools.usesCopilot) aiTools.push('GitHub Copilot');
-  if (tools.usesCursor) aiTools.push('Cursor');
-  if (tools.usesCline) aiTools.push('Cline');
-  if (tools.usesWindsurf) aiTools.push('Windsurf');
-  if (tools.usesAider) aiTools.push('Aider');
-  if (tools.usesContinue) aiTools.push('Continue');
-  if (tools.usesTabnine) aiTools.push('Tabnine');
-  if (tools.usesCody) aiTools.push('Cody');
-  if (tools.usesCodex) aiTools.push('Codex');
-  if (tools.usesGeminiCLI) aiTools.push('Gemini CLI');
-  if (tools.usesAmazonQ) aiTools.push('Amazon Q');
+  // Use rich aiTools array from collector (includes versions)
+  const aiTools = tools.aiTools || [];
 
   const maturitySignals = [];
   if (project.hasTests) maturitySignals.push('Testing configured');

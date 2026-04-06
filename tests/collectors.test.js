@@ -53,6 +53,16 @@ describe('collectToolsInfo', () => {
     assert.equal(typeof info.usesCursor, 'boolean');
   });
 
+  it('returns aiTools array with name and version', () => {
+    const info = collectToolsInfo();
+    assert.ok(Array.isArray(info.aiTools));
+    for (const tool of info.aiTools) {
+      assert.equal(typeof tool.name, 'string');
+      assert.equal(typeof tool.version, 'string');
+      assert.equal(typeof tool.source, 'string');
+    }
+  });
+
   it('never throws', () => {
     assert.doesNotThrow(() => collectToolsInfo());
   });
