@@ -3,7 +3,7 @@
 import { resolve, join } from 'path';
 import { existsSync, writeFileSync } from 'fs';
 import { homedir, platform } from 'os';
-import { exec } from 'child_process';
+import { spawn } from 'child_process';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
@@ -58,15 +58,25 @@ if (flags.help) {
   Usage: cchubber [options]
 
   Options:
-    --days, -d <n>     Analyze last N days (default: 30)
+    --days, -d <n>     Default view period in report (default: 30)
+                       All data is always included; this sets the UI default
     --output, -o <path> Output HTML report to custom path
     --no-open          Don't auto-open the report in browser
+    --no-telemetry     Disable anonymous telemetry for this run
     --json             Output raw analysis as JSON
     -h, --help         Show this help
 
+  Telemetry:
+    Anonymous environment and usage stats are sent once per day to help
+    build community benchmarks. No tokens, file contents, or project names.
+    Opt out permanently: set CC_HUBBER_TELEMETRY=0
+      PowerShell:  $env:CC_HUBBER_TELEMETRY="0"
+      CMD:         set CC_HUBBER_TELEMETRY=0
+      Unix:        export CC_HUBBER_TELEMETRY=0
+
   Examples:
     cchubber                    Scan & open HTML report
-    cchubber --days 7           Last 7 days only
+    cchubber --days 7           Default report view to 7 days
     cchubber -o report.html     Custom output path
     cchubber --json             Machine-readable output
 
@@ -196,7 +206,7 @@ async function main() {
   // Anonymous telemetry (opt out: --no-telemetry or CC_HUBBER_TELEMETRY=0)
   if (shouldSendTelemetry(flags)) {
     console.log('  ○ Sharing anonymous stats...');
-    await sendTelemetry(report);
+    await sendTelemetry(report, VERSION);
     console.log('  ✓ Stats shared (opt out: --no-telemetry)');
   }
 
@@ -218,10 +228,17 @@ function getClaudeDir() {
 
 function openInBrowser(filePath) {
   const p = platform();
-  const cmd = p === 'win32' ? `start "" "${filePath}"`
-    : p === 'darwin' ? `open "${filePath}"`
-    : `xdg-open "${filePath}"`;
-  exec(cmd, (err) => { if (err) console.log('  ○ Could not auto-open browser. Open the file manually.'); });
+  try {
+    if (p === 'win32') {
+      spawn('cmd', ['/c', 'start', '', filePath], { stdio: 'ignore', detached: true }).unref();
+    } else if (p === 'darwin') {
+      spawn('open', [filePath], { stdio: 'ignore', detached: true }).unref();
+    } else {
+      spawn('xdg-open', [filePath], { stdio: 'ignore', detached: true }).unref();
+    }
+  } catch {
+    console.log('  ○ Could not auto-open browser. Open the file manually.');
+  }
 }
 
 main().catch((err) => {

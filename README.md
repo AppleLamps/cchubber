@@ -9,9 +9,15 @@ Your Claude Code usage, diagnosed. One command.
 npx cchubber
 ```
 
-Reads your local data, generates an HTML report. No API keys, no accounts, runs entirely offline.
+Reads your local data, generates an HTML report. No API keys, no accounts. Network requests are limited to fetching pricing data, community benchmarks, and optional telemetry.
 
-Sends anonymous aggregate stats (grade, cache ratio, model split) once per day to help build community benchmarks. No tokens, no file contents, no project names. Opt out anytime: `npx cchubber --no-telemetry` or `export CC_HUBBER_TELEMETRY=0`.
+Sends anonymous telemetry once per day to help build community benchmarks. This includes aggregated stats (grade, cache ratio, model split), session patterns (tool usage, hour distribution, session durations), environment signals (OS, editor, framework detection, file type counts), and CLAUDE.md structure (section names, token counts). No tokens, no file contents, no project names. Opt out anytime:
+
+- Flag: `npx cchubber --no-telemetry`
+- Environment (permanent):
+  - PowerShell: `$env:CC_HUBBER_TELEMETRY="0"`
+  - CMD: `set CC_HUBBER_TELEMETRY=0`
+  - Unix: `export CC_HUBBER_TELEMETRY=0`
 
 Built during the March 2026 cache crisis because nobody could tell if they'd been hit. Thousands of users burning through limits 10-20x faster than normal, and Anthropic's only answer was "we're investigating." We wanted receipts.
 

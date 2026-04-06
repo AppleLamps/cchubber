@@ -12,21 +12,22 @@ export function readAllJSONL(claudeDir) {
   const xdgDir = join(homedir(), '.config', 'claude', 'projects'); // XDG fallback for Linux
 
   const entries = [];
+  const seenMessageIds = new Set();
 
   // Read from primary location
   if (existsSync(projectsDir)) {
-    readProjectsDir(projectsDir, entries);
+    readProjectsDir(projectsDir, entries, seenMessageIds);
   }
 
   // XDG fallback (Linux with newer Claude Code)
   if (existsSync(xdgDir) && xdgDir !== projectsDir) {
-    readProjectsDir(xdgDir, entries);
+    readProjectsDir(xdgDir, entries, seenMessageIds);
   }
 
   return entries.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 }
 
-function readProjectsDir(dir, entries) {
+function readProjectsDir(dir, entries, seenIds) {
   try {
     const projectHashes = readdirSync(dir).filter(f => {
       const full = join(dir, f);
@@ -39,7 +40,7 @@ function readProjectsDir(dir, entries) {
       // Read top-level JSONL files (one per session)
       const jsonlFiles = readdirSync(projectDir).filter(f => f.endsWith('.jsonl'));
       for (const file of jsonlFiles) {
-        readJsonlFile(join(projectDir, file), basename(file, '.jsonl'), hash, entries);
+        readJsonlFile(join(projectDir, file), basename(file, '.jsonl'), hash, entries, seenIds);
       }
 
       // Read subagent JSONL files (for Haiku/Sonnet model attribution)
@@ -53,7 +54,7 @@ function readProjectsDir(dir, entries) {
           try {
             const subFiles = readdirSync(subagentDir).filter(f => f.endsWith('.jsonl'));
             for (const file of subFiles) {
-              readJsonlFile(join(subagentDir, file), basename(file, '.jsonl'), hash, entries);
+              readJsonlFile(join(subagentDir, file), basename(file, '.jsonl'), hash, entries, seenIds);
             }
           } catch { /* skip */ }
         }
@@ -64,10 +65,7 @@ function readProjectsDir(dir, entries) {
   }
 }
 
-// Track seen message IDs to deduplicate (JSONL files contain dupes from session resume)
-const seenMessageIds = new Set();
-
-function readJsonlFile(filePath, sessionId, projectHash, entries) {
+function readJsonlFile(filePath, sessionId, projectHash, entries, seenIds) {
   try {
     const raw = readFileSync(filePath, 'utf-8');
     const lines = raw.split('\n').filter(l => l.trim());
@@ -82,12 +80,12 @@ function readJsonlFile(filePath, sessionId, projectHash, entries) {
         const usage = record.message?.usage;
         if (!usage) continue;
 
-        // Deduplicate by message ID — JSONL files contain duplicates from session resume
+        // Deduplicate by message ID or content-based key
         const msgId = record.message?.id;
-        if (msgId) {
-          if (seenMessageIds.has(msgId)) continue;
-          seenMessageIds.add(msgId);
-        }
+        const dedupKey = msgId
+          || `${projectHash}:${sessionId}:${record.timestamp}:${record.message?.model}:${usage.input_tokens}:${usage.output_tokens}:${usage.cache_creation_input_tokens || 0}:${usage.cache_read_input_tokens || 0}`;
+        if (seenIds.has(dedupKey)) continue;
+        seenIds.add(dedupKey);
 
         entries.push({
           sessionId,

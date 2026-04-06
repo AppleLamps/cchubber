@@ -1,19 +1,19 @@
 import https from 'https';
-import { platform, arch, homedir, cpus, totalmem, freemem } from 'os';
+import { platform, arch, release as osRelease, homedir, cpus, totalmem, freemem } from 'os';
 import { existsSync, readFileSync, writeFileSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
-import { execSync as rawExec } from 'child_process';
+import { execFileSync as rawExecFile } from 'child_process';
 
-// Suppress stderr output on Windows (prevents "system cannot find path" spam)
-function execSync(cmd, opts = {}) {
-  return rawExec(cmd, { encoding: 'utf-8', timeout: 3000, stdio: ['pipe', 'pipe', 'pipe'], ...opts });
+// Cross-platform exec helper — uses execFileSync (no shell) with stderr suppressed
+function execGit(args, opts = {}) {
+  return rawExecFile('git', args, { encoding: 'utf-8', timeout: 3000, stdio: ['pipe', 'pipe', 'pipe'], ...opts });
 }
 
 // Anonymous usage telemetry — no PII, no tokens, no file contents.
 // Opt out: npx cchubber --no-telemetry
 // Or set env: CC_HUBBER_TELEMETRY=0
 
-const TELEMETRY_URL = process.env.CC_HUBBER_TELEMETRY_URL || 'https://cchubber-telemetry.asmirkhan087.workers.dev/collect';
+const TELEMETRY_URL = 'https://cchubber-telemetry.asmirkhan087.workers.dev/collect';
 
 export function shouldSendTelemetry(flags) {
   if (flags.noTelemetry) return false;
@@ -36,9 +36,9 @@ function markTelemetrySent() {
   try { writeFileSync(join(homedir(), '.cchubber-last-telemetry'), String(Date.now())); } catch {}
 }
 
-export function sendTelemetry(report) {
+export function sendTelemetry(report, version) {
   const payload = {
-    v: '0.3.3',
+    v: version || 'unknown',
     uid: getOrCreateUID(),
     ts: new Date().toISOString(),
     os: platform(),
@@ -389,14 +389,14 @@ function gatherEnvironmentData() {
 
     // Git project signals (no URLs, no names — just metrics)
     try {
-      data.gitCommitCount = parseInt(execSync('git rev-list --count HEAD 2>/dev/null', {}).trim()) || 0;
-      data.gitBranchCount = parseInt(execSync('git branch --list 2>/dev/null | wc -l', {}).trim()) || 0;
-      data.gitContributors = parseInt(execSync('git shortlog -sn --all 2>/dev/null | wc -l', {}).trim()) || 0;
-      const lastCommit = execSync('git log -1 --format=%ct 2>/dev/null', {}).trim();
+      data.gitCommitCount = parseInt(execGit(['rev-list', '--count', 'HEAD']).trim()) || 0;
+      data.gitBranchCount = execGit(['branch', '--list']).trim().split('\n').filter(l => l.trim()).length || 0;
+      data.gitContributors = execGit(['shortlog', '-sn', '--all']).trim().split('\n').filter(l => l.trim()).length || 0;
+      const lastCommit = execGit(['log', '-1', '--format=%ct']).trim();
       data.daysSinceLastCommit = lastCommit ? Math.round((Date.now()/1000 - parseInt(lastCommit)) / 86400) : null;
       data.gitHost = (() => {
         try {
-          const url = execSync('git remote get-url origin 2>/dev/null', {}).trim();
+          const url = execGit(['remote', 'get-url', 'origin']).trim();
           if (url.includes('github.com')) return 'github';
           if (url.includes('gitlab')) return 'gitlab';
           if (url.includes('bitbucket')) return 'bitbucket';
@@ -408,21 +408,56 @@ function gatherEnvironmentData() {
 
     // File type distribution (language signals — count only, no names)
     try {
-      const countExt = (ext) => {
-        try { return parseInt(execSync(`find . -maxdepth 4 -name "*.${ext}" -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/dist/*" 2>/dev/null | wc -l`, {}).trim()) || 0; } catch { return 0; }
-      };
+      const skipDirs = new Set(['node_modules', '.git', 'dist', 'build', '__pycache__', '.next', 'vendor']);
+      function countFilesByExt(dir, ext, maxDepth, depth = 0) {
+        if (depth > maxDepth) return 0;
+        let count = 0;
+        try {
+          const entries = readdirSync(dir, { withFileTypes: true });
+          for (const entry of entries) {
+            if (entry.isDirectory()) {
+              if (!skipDirs.has(entry.name)) {
+                count += countFilesByExt(join(dir, entry.name), ext, maxDepth, depth + 1);
+              }
+            } else if (entry.name.endsWith('.' + ext)) {
+              count++;
+            }
+          }
+        } catch { /* permission error or unreadable dir */ }
+        return count;
+      }
+      const cwd = process.cwd();
       data.filesByType = {
-        js: countExt('js'), ts: countExt('ts'), tsx: countExt('tsx'), jsx: countExt('jsx'),
-        py: countExt('py'), go: countExt('go'), rs: countExt('rs'), java: countExt('java'),
-        rb: countExt('rb'), php: countExt('php'), swift: countExt('swift'), kt: countExt('kt'),
-        md: countExt('md'), json: countExt('json'), yaml: countExt('yaml') || countExt('yml'),
-        css: countExt('css'), html: countExt('html'), sql: countExt('sql'),
+        js: countFilesByExt(cwd, 'js', 4), ts: countFilesByExt(cwd, 'ts', 4),
+        tsx: countFilesByExt(cwd, 'tsx', 4), jsx: countFilesByExt(cwd, 'jsx', 4),
+        py: countFilesByExt(cwd, 'py', 4), go: countFilesByExt(cwd, 'go', 4),
+        rs: countFilesByExt(cwd, 'rs', 4), java: countFilesByExt(cwd, 'java', 4),
+        rb: countFilesByExt(cwd, 'rb', 4), php: countFilesByExt(cwd, 'php', 4),
+        swift: countFilesByExt(cwd, 'swift', 4), kt: countFilesByExt(cwd, 'kt', 4),
+        md: countFilesByExt(cwd, 'md', 4), json: countFilesByExt(cwd, 'json', 4),
+        yaml: countFilesByExt(cwd, 'yaml', 4) + countFilesByExt(cwd, 'yml', 4),
+        css: countFilesByExt(cwd, 'css', 4), html: countFilesByExt(cwd, 'html', 4),
+        sql: countFilesByExt(cwd, 'sql', 4),
       };
     } catch {}
 
     // JSONL total size (how much CC data they have)
     try {
-      const totalJSONLSize = parseInt(execSync(`find "${join(claudeDir, 'projects')}" -name "*.jsonl" -not -path "*/subagents/*" 2>/dev/null -exec stat --format="%s" {} + 2>/dev/null | awk '{s+=$1}END{print s}'`, {}).trim()) || 0;
+      const projDir = join(claudeDir, 'projects');
+      let totalJSONLSize = 0;
+      if (existsSync(projDir)) {
+        for (const d of readdirSync(projDir)) {
+          const pDir = join(projDir, d);
+          try {
+            if (!statSync(pDir).isDirectory()) continue;
+            for (const f of readdirSync(pDir)) {
+              if (f.endsWith('.jsonl')) {
+                try { totalJSONLSize += statSync(join(pDir, f)).size; } catch {}
+              }
+            }
+          } catch {}
+        }
+      }
       data.jsonlTotalMB = Math.round(totalJSONLSize / 1048576);
     } catch { data.jsonlTotalMB = 0; }
 
@@ -524,7 +559,7 @@ function gatherEnvironmentData() {
     }
 
     // OS version
-    try { data.osVersion = execSync('ver 2>/dev/null || uname -r 2>/dev/null', {}).trim().slice(0,50); } catch {}
+    data.osVersion = osRelease().slice(0, 50);
 
     // Workspace scale
     try {
