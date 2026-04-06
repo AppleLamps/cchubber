@@ -42,8 +42,8 @@ const flags = {
   })(),
   days: (() => {
     const idx = args.indexOf('--days') !== -1 ? args.indexOf('--days') : args.indexOf('-d');
-    const val = idx !== -1 && args[idx + 1] ? parseInt(args[idx + 1], 10) : 30;
-    return isNaN(val) ? 30 : val;
+    const val = idx !== -1 && args[idx + 1] ? parseInt(args[idx + 1], 10) : 0;
+    return isNaN(val) ? 0 : val;
   })(),
   budget: (() => {
     const idx = args.indexOf('--budget');
@@ -63,7 +63,7 @@ if (flags.help) {
   Usage: cchubber [options]
 
   Options:
-    --days, -d <n>     Analyze last N days of data (default: 30)
+    --days, -d <n>     Analyze last N days of data (default: all time)
     --output, -o <path> Output HTML report to custom path
     --budget <n>       Warn if daily cost exceeds $n (persisted)
     --watch, -w        Live monitoring mode (poll for changes)
@@ -117,14 +117,19 @@ async function main() {
   const claudeMdStack = readClaudeMdStack(claudeDir);
   const oauthUsage = await readOAuthUsage(claudeDir);
 
-  // Filter JSONL entries by --days window before aggregation
-  const cutoffDate = new Date();
-  cutoffDate.setDate(cutoffDate.getDate() - flags.days);
-  const cutoffISO = cutoffDate.toISOString();
-  const filteredEntries = jsonlEntries.filter(e => {
-    const ts = e.timestamp || e.ts;
-    return !ts || ts >= cutoffISO;
-  });
+  // Filter JSONL entries by --days window before aggregation (0 = all time)
+  let filteredEntries;
+  if (flags.days > 0) {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - flags.days);
+    const cutoffISO = cutoffDate.toISOString();
+    filteredEntries = jsonlEntries.filter(e => {
+      const ts = e.timestamp || e.ts;
+      return !ts || ts >= cutoffISO;
+    });
+  } else {
+    filteredEntries = jsonlEntries;
+  }
 
   if (jsonlEntries.length === 0 && !statsCache) {
     console.error('  ✗ No usage data found. Use Claude Code first, then run CC Hubber.\n');
@@ -140,7 +145,7 @@ async function main() {
   const pricing = await fetchPricing();
   const pricingSource = pricing === null ? 'hardcoded' : 'LiteLLM';
 
-  console.log(`  ✓ ${jsonlEntries.length.toLocaleString()} total entries → ${filteredEntries.length.toLocaleString()} in last ${flags.days} days`);
+  console.log(`  ✓ ${jsonlEntries.length.toLocaleString()} total entries → ${filteredEntries.length.toLocaleString()}${flags.days > 0 ? ` in last ${flags.days} days` : ' (all time)'}`);
   console.log(`  ✓ ${dailyFromJSONL.length} days of data found`);
   console.log(`  ✓ Pricing: ${pricingSource}`);
   console.log(`  ✓ ${sessionMeta.length} sessions found`);
