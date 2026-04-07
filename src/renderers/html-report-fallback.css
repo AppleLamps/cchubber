@@ -1,0 +1,14 @@
+/* Fallback layout when Tailwind CDN is blocked — keeps report readable offline */
+.report-fallback-shell {
+  box-sizing: border-box;
+  max-width: 1200px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+}
+.report-fallback-grid {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+}

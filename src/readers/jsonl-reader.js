@@ -225,6 +225,7 @@ export function aggregateByProject(entries, claudeDir) {
         messageCount: 0,
         sessionCount: 0,
         sessions: new Set(),
+        models: {},
         firstSeen: entry.timestamp,
         lastSeen: entry.timestamp,
       };
@@ -236,6 +237,20 @@ export function aggregateByProject(entries, claudeDir) {
     p.cacheReadTokens += entry.cacheReadTokens;
     p.messageCount++;
     p.sessions.add(entry.sessionId);
+    const modelName = entry.model || 'unknown';
+    if (!p.models[modelName]) {
+      p.models[modelName] = {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 0,
+      };
+    }
+    const pm = p.models[modelName];
+    pm.inputTokens += entry.inputTokens;
+    pm.outputTokens += entry.outputTokens;
+    pm.cacheCreationTokens += entry.cacheCreationTokens;
+    pm.cacheReadTokens += entry.cacheReadTokens;
     if (entry.timestamp > p.lastSeen) p.lastSeen = entry.timestamp;
     if (entry.timestamp < p.firstSeen) p.firstSeen = entry.timestamp;
   }

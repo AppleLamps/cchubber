@@ -23,7 +23,9 @@ import { readSessionMeta } from '../readers/session-meta.js';
 import { readCacheBreaks } from '../readers/cache-breaks.js';
 import { readClaudeMdStack } from '../readers/claude-md.js';
 import { readOAuthUsage } from '../readers/oauth-usage.js';
-import { analyzeUsage, fetchPricing } from '../analyzers/cost-calculator.js';
+import { analyzeUsage, fetchPricing, enrichProjectCosts } from '../analyzers/cost-calculator.js';
+import { extractCommunityBenchmarks } from '../analyzers/community-benchmarks.js';
+import { analyzeCrossToolSynthesis } from '../analyzers/cross-tool-synthesis.js';
 import { analyzeCacheHealth } from '../analyzers/cache-health.js';
 import { detectAnomalies } from '../analyzers/anomaly-detector.js';
 import { generateRecommendations } from '../analyzers/recommendations.js';
@@ -31,7 +33,7 @@ import { detectInflectionPoints } from '../analyzers/inflection-detector.js';
 import { analyzeSessionIntelligence } from '../analyzers/session-intelligence.js';
 import { analyzeModelRouting } from '../analyzers/model-routing.js';
 import { analyzeEnvironment } from '../analyzers/environment-analyzer.js';
-import { renderHTML } from '../renderers/html-report.js';
+import { renderHTML } from '../renderers/html-report/index.js';
 import { renderTerminal } from '../renderers/terminal-summary.js';
 import { shouldSendTelemetry, sendTelemetry } from '../telemetry.js';
 import { saveRun, getDelta, getHistory } from '../history.js';
@@ -149,7 +151,6 @@ async function main() {
   // Aggregate filtered JSONL into daily + model + project views
   const dailyFromJSONL = aggregateDaily(filteredEntries);
   const modelFromJSONL = aggregateByModel(filteredEntries);
-  const projectBreakdown = aggregateByProject(filteredEntries, claudeDir);
 
   // Fetch dynamic pricing (LiteLLM) with hardcoded fallback
   const pricing = await fetchPricing();
@@ -191,25 +192,6 @@ async function main() {
     console.log('  ○ No other AI tool data found');
   }
 
-  console.log('\n  Analyzing...\n');
-  const costAnalysis = analyzeUsage(statsCache, sessionMeta, flags.days, dailyFromJSONL, modelFromJSONL);
-  const cacheHealth = analyzeCacheHealth(statsCache, cacheBreaks, flags.days, dailyFromJSONL);
-  const anomalies = detectAnomalies(costAnalysis);
-  const inflection = detectInflectionPoints(dailyFromJSONL);
-  const sessionIntel = analyzeSessionIntelligence(sessionMeta, jsonlEntries);
-  const modelRouting = analyzeModelRouting(costAnalysis, jsonlEntries);
-  const recommendations = generateRecommendations(costAnalysis, cacheHealth, claudeMdStack, anomalies, inflection, sessionIntel, modelRouting, projectBreakdown);
-  const environment = analyzeEnvironment(claudeDir);
-
-  if (inflection) console.log(`  ✓ Inflection: ${inflection.summary}`);
-  if (sessionIntel.available) console.log(`  ✓ ${sessionIntel.totalSessions} sessions analyzed (${sessionIntel.avgDuration} min avg)`);
-  if (modelRouting.available) console.log(`  ✓ Model routing: ${modelRouting.opusPct}% Opus, ${modelRouting.sonnetPct}% Sonnet`);
-  console.log(`  ✓ ${projectBreakdown.length} projects detected`);
-  if (environment.available) {
-    console.log(`  ✓ Environment: ${environment.system.os}/${environment.system.arch}, ${environment.frameworks.length} frameworks, ${environment.aiTools.length} AI tools`);
-  }
-
-  // Fetch community stats for leaderboard (non-blocking, 5s timeout, fails silently)
   let communityStats = null;
   try {
     const controller = new AbortController();
@@ -218,8 +200,44 @@ async function main() {
     clearTimeout(timeout);
     if (res.ok) communityStats = await res.json();
   } catch {}
-  if (communityStats) console.log(`  ✓ Community data: ${communityStats.totalReports} users from ${Object.keys(communityStats.countries || {}).length} countries`);
-  else console.log('  ○ Community data unavailable (offline)');
+  const communityBenchmarks = extractCommunityBenchmarks(communityStats);
+  if (communityStats) {
+    console.log(`  ✓ Community data: ${communityStats.totalReports} users from ${Object.keys(communityStats.countries || {}).length} countries`);
+  } else {
+    console.log('  ○ Community data unavailable (offline) — using default benchmarks');
+  }
+
+  const projectBreakdown = enrichProjectCosts(aggregateByProject(filteredEntries, claudeDir));
+
+  console.log('\n  Analyzing...\n');
+  const costAnalysis = analyzeUsage(statsCache, sessionMeta, flags.days, dailyFromJSONL, modelFromJSONL);
+  const cacheHealth = analyzeCacheHealth(statsCache, cacheBreaks, flags.days, dailyFromJSONL);
+  const anomalies = detectAnomalies(costAnalysis);
+  const inflection = detectInflectionPoints(dailyFromJSONL);
+  const sessionIntel = analyzeSessionIntelligence(sessionMeta, jsonlEntries);
+  const modelRouting = analyzeModelRouting(costAnalysis, jsonlEntries);
+  const crossToolSynthesis = analyzeCrossToolSynthesis(multiTool, costAnalysis);
+  const recommendations = generateRecommendations(
+    costAnalysis,
+    cacheHealth,
+    claudeMdStack,
+    anomalies,
+    inflection,
+    sessionIntel,
+    modelRouting,
+    projectBreakdown,
+    communityBenchmarks,
+  );
+  const environment = analyzeEnvironment(claudeDir);
+
+  if (inflection) console.log(`  ✓ Inflection: ${inflection.summary}`);
+  if (sessionIntel.available) console.log(`  ✓ ${sessionIntel.totalSessions} sessions analyzed (${sessionIntel.avgDuration} min avg)`);
+  if (modelRouting.available) console.log(`  ✓ Model routing: ${modelRouting.opusPct}% Opus, ${modelRouting.sonnetPct}% Sonnet`);
+  console.log(`  ✓ ${projectBreakdown.length} projects detected`);
+  if (crossToolSynthesis.available) console.log(`  ✓ Cross-tool: ${crossToolSynthesis.insights.length} insight(s)`);
+  if (environment.available) {
+    console.log(`  ✓ Environment: ${environment.system.os}/${environment.system.arch}, ${environment.frameworks.length} frameworks, ${environment.aiTools.length} AI tools`);
+  }
 
   const report = {
     generatedAt: new Date().toISOString(),
@@ -235,6 +253,9 @@ async function main() {
     oauthUsage,
     recommendations,
     communityStats,
+    communityBenchmarks,
+    crossToolSynthesis,
+    pricingSource,
     environment,
     multiTool,
     history: getHistory(),
@@ -249,6 +270,8 @@ async function main() {
   // Track over time — save run, then compare against previous
   const currentRun = saveRun(report);
   const delta = getDelta(currentRun);
+  report.comparison = delta;
+
   if (delta && delta.daysSince > 0) {
     console.log(`  ✓ Compared to last run (${delta.daysSince}d ago):`);
     if (delta.gradeChange) console.log(`    Grade: ${delta.gradeChange}`);

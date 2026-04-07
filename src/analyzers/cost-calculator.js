@@ -358,4 +358,34 @@ function analyzeFromJSONL(dailyFromJSONL, modelFromJSONL, sessionMeta, days, cut
   };
 }
 
+/**
+ * Per-project estimated API-equivalent cost from per-model token rolls (JSONL).
+ */
+export function enrichProjectCosts(projects) {
+  if (!projects || !projects.length) return projects || [];
+  return projects.map((p) => {
+    let estimatedCost = 0;
+    const models = p.models || {};
+    for (const [modelName, m] of Object.entries(models)) {
+      const c = calculateCost(modelName, {
+        inputTokens: m.inputTokens,
+        outputTokens: m.outputTokens,
+        cacheCreationTokens: m.cacheCreationTokens,
+        cacheReadTokens: m.cacheReadTokens,
+      });
+      estimatedCost += c.total;
+    }
+    if (estimatedCost === 0 && (p.inputTokens || 0) + (p.outputTokens || 0) > 0) {
+      const c = calculateCost('claude-sonnet-4-6', {
+        inputTokens: p.inputTokens,
+        outputTokens: p.outputTokens,
+        cacheCreationTokens: p.cacheCreationTokens,
+        cacheReadTokens: p.cacheReadTokens,
+      });
+      estimatedCost = c.total;
+    }
+    return { ...p, estimatedCost };
+  });
+}
+
 export { PRICING, calculateCost, cleanModelName };

@@ -2,20 +2,30 @@
  * Recommendations Engine
  * Each recommendation includes estimated usage % savings.
  * Informed by community data from the March 2026 Claude Code crisis
- * and anonymous telemetry from 33+ real users (community averages).
+ * and live telemetry benchmarks when available.
  */
-export function generateRecommendations(costAnalysis, cacheHealth, claudeMdStack, anomalies, inflection, sessionIntel, modelRouting, projectBreakdown) {
+export function generateRecommendations(
+  costAnalysis,
+  cacheHealth,
+  claudeMdStack,
+  anomalies,
+  inflection,
+  sessionIntel,
+  modelRouting,
+  projectBreakdown,
+  communityBenchmarks,
+) {
   const recs = [];
   const totalCost = costAnalysis.totalCost || 1;
 
-  // Community benchmarks from telemetry (33 users, Apr 2026)
+  const b = communityBenchmarks || {};
   const community = {
-    avgRatio: 680,
-    avgOpusPct: 69,
-    avgClaudeMdTokens: 1892,
-    avgSessionMin: 36,
-    avgSubagentPct: 40,
-    avgHookCount: 2.8,
+    avgRatio: b.avgRatio ?? 680,
+    avgOpusPct: b.avgOpusPct ?? 69,
+    avgClaudeMdTokens: b.avgClaudeMdTokens ?? 1892,
+    avgSessionMin: b.avgSessionMin ?? 36,
+    avgSubagentPct: b.avgSubagentPct ?? 40,
+    avgHookCount: b.avgHookCount ?? 2.8,
   };
 
   // 0. Inflection point — most critical signal
@@ -59,21 +69,26 @@ export function generateRecommendations(costAnalysis, cacheHealth, claudeMdStack
     });
   }
 
-  // 3. Project cost hotspot — identifies the most expensive project
-  // projectBreakdown has token counts but not cost. Use output tokens as proxy
-  // (output tokens dominate cost at $25/M for Opus vs $5/M for input).
+  // 3. Project cost hotspot — per-project estimated $ from model-weighted tokens when available
   if (projectBreakdown && projectBreakdown.length > 1) {
+    const totalEstimated = projectBreakdown.reduce((s, p) => s + (p.estimatedCost || 0), 0);
     const totalOutput = projectBreakdown.reduce((s, p) => s + (p.outputTokens || 0), 0);
-    const sorted = [...projectBreakdown].sort((a, b) => (b.outputTokens || 0) - (a.outputTokens || 0));
+    const useCost = totalEstimated > 0.01;
+    const sorted = [...projectBreakdown].sort((a, b) =>
+      useCost ? (b.estimatedCost || 0) - (a.estimatedCost || 0) : (b.outputTokens || 0) - (a.outputTokens || 0),
+    );
     const top = sorted[0];
-    if (top && totalOutput > 0) {
-      const pct = Math.round(((top.outputTokens || 0) / totalOutput) * 100);
+    const denom = useCost ? totalEstimated : totalOutput;
+    if (top && denom > 0) {
+      const basis = useCost ? top.estimatedCost || 0 : top.outputTokens || 0;
+      const pct = Math.round((basis / denom) * 100);
       if (pct > 30) {
+        const costBit = useCost ? `~$${(top.estimatedCost || 0).toFixed(2)} est. (${pct}% of project spend)` : `${pct}% of output tokens`;
         recs.push({
           severity: 'info',
-          title: `"${top.name}" uses ${pct}% of output tokens (${sorted.length} projects total)`,
+          title: `"${top.name}" — ${costBit} (${sorted.length} projects)`,
           savings: 'Focus optimization here first',
-          action: `Your most active project by output. ${top.messageCount || 0} messages across ${top.sessionCount || 0} sessions. Consider whether this project needs Opus or if Sonnet would work. Splitting large tasks into smaller sessions reduces context bloat.`,
+          action: `Your most expensive project by ${useCost ? 'estimated API-equivalent cost' : 'output volume'}. ${top.messageCount || 0} messages across ${top.sessionCount || 0} sessions. Consider whether this project needs Opus or if Sonnet would work. Splitting large tasks into smaller sessions reduces context bloat.`,
         });
       }
     }

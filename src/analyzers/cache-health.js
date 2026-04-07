@@ -61,9 +61,17 @@ export function analyzeCacheHealth(statsCache, cacheBreaks, days, dailyFromJSONL
 
   const estimatedBreaks = totalBreaks > 0 ? totalBreaks : Math.round(totalCacheWrite / 300_000);
 
+  const breaksConfidence = totalBreaks > 0 ? 'measured' : 'estimated';
+  const breaksNote =
+    totalBreaks > 0
+      ? 'Counts come from Claude Code cache-break diff files on disk.'
+      : 'No diff files found for this Claude Code version — break count is estimated from cache write tokens (rough).';
+
   return {
     totalCacheBreaks: totalBreaks,
     estimatedBreaks,
+    breaksConfidence,
+    breaksNote,
     reasonsRanked,
     cacheHitRate: Math.round(cacheHitRate * 10) / 10,
     efficiencyRatio,

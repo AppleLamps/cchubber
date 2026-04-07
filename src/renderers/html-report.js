@@ -1,10 +1,39 @@
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+let REPORT_FALLBACK_CSS = '';
+try {
+  REPORT_FALLBACK_CSS = readFileSync(join(__dirname, 'html-report-fallback.css'), 'utf-8');
+} catch {
+  /* optional */
+}
+
 function esc(s) {
   if (!s) return '';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 export function renderHTML(report) {
-  const { costAnalysis, cacheHealth, anomalies, inflection, sessionIntel, modelRouting, projectBreakdown, claudeMdStack, oauthUsage, recommendations, generatedAt, multiTool } = report;
+  const {
+    costAnalysis,
+    cacheHealth,
+    anomalies,
+    inflection,
+    sessionIntel,
+    modelRouting,
+    projectBreakdown,
+    claudeMdStack,
+    oauthUsage,
+    recommendations,
+    generatedAt,
+    multiTool,
+    comparison,
+    crossToolSynthesis,
+    communityBenchmarks,
+    pricingSource,
+  } = report;
 
   const dailyCosts = costAnalysis.dailyCosts || [];
   const grade = cacheHealth.grade || { letter: '?', color: '#666', label: 'Unknown' };
@@ -23,6 +52,7 @@ export function renderHTML(report) {
   const projectsJSON = JSON.stringify((projectBreakdown || []).map(p => ({
     name: p.name, path: p.path, messages: p.messageCount, sessions: p.sessionCount,
     input: p.inputTokens, output: p.outputTokens, cacheRead: p.cacheReadTokens, cacheWrite: p.cacheCreationTokens,
+    estimatedCost: p.estimatedCost,
   })));
 
   const fmtCost = (n) => '$' + (n >= 100 ? Math.round(n).toLocaleString() : n.toFixed(2));
@@ -193,9 +223,42 @@ export function renderHTML(report) {
   /* Table hover */
   .tbl-row:hover { background: #292a2b; }
   .tbl-row { transition: background 0.15s; }
+
+  .skip-link {
+    position: absolute;
+    left: -10000px;
+    top: auto;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+  }
+  .skip-link:focus {
+    position: fixed;
+    left: 8px;
+    top: 8px;
+    width: auto;
+    height: auto;
+    padding: 8px 12px;
+    background: #292a2b;
+    border: 1px solid rgba(70, 69, 84, 0.5);
+    border-radius: 8px;
+    z-index: 9999;
+    color: #e3e2e3;
+    font-size: 12px;
+    outline: none;
+  }
+
+  @media print {
+    .no-print, #btn-gif, .toast, #tt { display: none !important; }
+    body { background: #fff !important; color: #111 !important; }
+    .cc-card { animation: none !important; box-shadow: none !important; }
+    main, header, footer { max-width: 100% !important; }
+  }
 </style>
+<style>${REPORT_FALLBACK_CSS}</style>
 </head>
 <body class="selection:bg-primary selection:text-on-primary">
+<a href="#main-report" class="skip-link">Skip to report</a>
 
 <div class="tt" id="tt">
   <div class="font-mono text-[11px] text-[#908fa0] mb-1" id="tt-d"></div>
@@ -207,13 +270,29 @@ export function renderHTML(report) {
 <!-- 1. HEADER -->
 <header class="w-full px-6 py-5 max-w-[1200px] mx-auto flex justify-between items-baseline">
   <div class="flex items-baseline gap-4">
-    <a href="https://github.com/azkhh/cchubber" target="_blank" class="text-lg font-bold tracking-tight text-[#e3e2e3]" style="text-decoration:none;">CC Hubber</a>
+    <a href="https://github.com/AppleLamps/cchubber" target="_blank" class="text-lg font-bold tracking-tight text-[#e3e2e3]" style="text-decoration:none;">CC Hubber</a>
     <span class="text-[10px] uppercase tracking-[0.05em] text-[#908fa0]">shipped fast with <a href="https://moveros.dev" target="_blank" style="text-decoration:none;color:inherit;">Mover OS</a></span>
   </div>
-  <span class="font-mono text-[11px] text-[#908fa0]" id="range-lbl">All time</span>
+  <div class="text-right">
+    <span class="font-mono text-[11px] text-[#908fa0]" id="range-lbl">All time</span>
+    ${pricingSource ? `<div class="text-[9px] text-[#464554] mt-0.5 font-mono">Pricing: ${pricingSource === 'LiteLLM' ? 'LiteLLM' : 'fallback table'}</div>` : ''}
+  </div>
 </header>
 
-<main class="pb-20 px-6 max-w-[1200px] mx-auto space-y-12">
+<main id="main-report" class="pb-20 px-6 max-w-[1200px] mx-auto space-y-12 report-fallback-shell">
+
+${comparison && comparison.daysSince > 0 ? `
+<section class="bg-[#1b1c1d] p-6 rounded-xl border border-[rgba(70,69,84,0.15)]" aria-label="Comparison to previous run">
+  <p class="text-[10px] uppercase tracking-[0.05em] text-[#c0c1ff] mb-2">Since last run (${comparison.daysSince} day${comparison.daysSince === 1 ? '' : 's'} ago)</p>
+  <div class="flex flex-wrap gap-x-8 gap-y-2 text-sm text-[#c7c4d7]">
+    <span class="font-mono">${comparison.gradeChange ? `<span class="text-[#908fa0]">Grade</span> ${esc(comparison.gradeChange)}` : '<span class="text-[#908fa0]">Grade</span> unchanged'}</span>
+    <span class="font-mono"><span class="text-[#908fa0]">Cache ratio</span> ${comparison.prev.ratio}:1 → ${comparison.prev.ratio + comparison.ratioChange}:1</span>
+    <span class="font-mono"><span class="text-[#908fa0]">Cost delta</span> ${comparison.costChange >= 0 ? '+' : ''}$${comparison.costChange.toFixed(2)} equiv.</span>
+  </div>
+</section>` : ''}
+
+${communityBenchmarks ? `
+<p class="text-[10px] text-[#464554]">${communityBenchmarks.source === 'telemetry' ? 'Recommendations use live community averages.' : 'Recommendations use default benchmarks (telemetry unavailable).'}</p>` : ''}
 
 <!-- 2. SHARE CARD — HTML for display, Canvas for video export -->
 <section class="flex flex-col items-center">
@@ -278,7 +357,7 @@ export function renderHTML(report) {
       <div class="flex justify-between items-end">
         <p class="text-[12px] text-[#908fa0]">${diagnosisLine}</p>
         <div class="flex items-center gap-2 text-[12px] font-mono tracking-[0.03em] shrink-0">
-          <a href="https://github.com/azkhh/cchubber" target="_blank" class="text-[#c0c1ff] hover:text-[#e1e0ff]" style="text-decoration:none;font-weight:600;">CC Hubber</a>
+          <a href="https://github.com/AppleLamps/cchubber" target="_blank" class="text-[#c0c1ff] hover:text-[#e1e0ff]" style="text-decoration:none;font-weight:600;">CC Hubber</a>
           <span class="text-[#464554]">&middot;</span>
           <span class="text-[#908fa0]">shipped fast with</span>
           <a href="https://moveros.dev" target="_blank" class="text-[#c0c1ff] hover:text-[#e1e0ff]" style="text-decoration:none;font-weight:600;">Mover OS</a>
@@ -289,8 +368,8 @@ export function renderHTML(report) {
   <!-- Hidden canvas for video recording -->
   <canvas id="share-card" style="display:none;"></canvas>
   <div class="flex justify-center mt-5">
-    <button id="btn-gif" class="px-5 py-2 border border-[rgba(70,69,84,0.3)] rounded-lg text-xs font-semibold text-[#908fa0] hover:bg-[#292a2b] hover:text-[#e3e2e3] transition-colors flex items-center gap-2 cursor-pointer">
-      <span class="material-symbols-outlined text-sm">share</span>
+    <button type="button" id="btn-gif" class="no-print px-5 py-2 border border-[rgba(70,69,84,0.3)] rounded-lg text-xs font-semibold text-[#908fa0] hover:bg-[#292a2b] hover:text-[#e3e2e3] transition-colors flex items-center gap-2 cursor-pointer">
+      <span class="material-symbols-outlined text-sm" aria-hidden="true">share</span>
       Share
     </button>
   </div>
@@ -308,6 +387,12 @@ ${inflection && inflection.multiplier >= 1.5 ? `
     <p class="text-xs font-bold uppercase tracking-[0.05em] mb-1" style="color:${inflection.secondary.direction === 'worsened' ? '#ffb4ab' : '#c0c1ff'}">${inflection.secondary.direction === 'worsened' ? 'Degradation Detected' : 'Recovery Detected'}</p>
     <p class="text-sm text-[#c7c4d7]">${inflection.secondary.summary}</p>
   </div>` : ''}
+  ${inflection.alternate ? `
+  <div class="p-4 bg-[#0d0e0f] border border-[rgba(70,69,84,0.2)] rounded-xl">
+    <p class="text-[10px] uppercase tracking-[0.05em] text-[#908fa0] mb-1">Alternate signal</p>
+    <p class="text-xs text-[#c7c4d7]">${esc(inflection.alternate.summary)}</p>
+  </div>` : ''}
+  ${inflection.methodology ? `<p class="text-[10px] text-[#464554]">${esc(inflection.methodology)}</p>` : ''}
 </section>
 ` : ''}
 
@@ -336,6 +421,7 @@ ${inflection && inflection.multiplier >= 1.5 ? `
     </span>
     <span class="font-mono text-2xl font-bold block text-[#e3e2e3]">${cacheHealth.totalCacheBreaks > 0 ? cacheHealth.totalCacheBreaks : '~' + (cacheHealth.estimatedBreaks || 0)}</span>
     <span class="text-[10px] text-[#908fa0] mt-1 block">${cacheHealth.totalCacheBreaks > 0 ? cacheHealth.reasonsRanked?.[0]?.reason : 'estimated from writes'}</span>
+    ${cacheHealth.breaksConfidence === 'estimated' ? `<span class="text-[9px] text-[#464554] block mt-1 leading-snug">${esc(cacheHealth.breaksNote || '')}</span>` : ''}
   </div>
   <div class="p-6 bg-[#0d0e0f]">
     <span class="text-[10px] uppercase tracking-[0.05em] text-[#908fa0] block mb-3">CLAUDE.md</span>
@@ -355,21 +441,24 @@ ${inflection && inflection.multiplier >= 1.5 ? `
   </div>`}
 </section>
 
+${oauthUsage && (oauthUsage.five_hour || oauthUsage.seven_day) ? renderRateLimits(oauthUsage) : ''}
+
 <!-- 4. COST TREND CHART -->
 <section class="bg-[#1b1c1d] p-8 rounded-xl border border-[rgba(70,69,84,0.15)]">
   <div class="flex justify-between items-end mb-10">
     <div>
       <h3 class="text-xl font-bold text-[#e3e2e3] mb-1">Cost Trend</h3>
       <p class="text-sm text-[#908fa0]" id="chart-info"></p>
+      <p class="text-[10px] text-[#464554] mt-1" id="chart-legend">Violet line: cost · Tertiary line: cache efficiency (read ÷ output)</p>
     </div>
-    <div class="flex gap-1 p-1 bg-[#0d0e0f] rounded-xl border border-[rgba(70,69,84,0.15)]" id="filters">
-      <button class="cfilt px-3 py-1.5 text-[10px] font-bold uppercase rounded-lg text-[#908fa0] hover:text-[#e3e2e3] transition-colors" data-r="7">7d</button>
-      <button class="cfilt px-3 py-1.5 text-[10px] font-bold uppercase rounded-lg text-[#908fa0] hover:text-[#e3e2e3] transition-colors" data-r="30">30d</button>
-      <button class="cfilt px-3 py-1.5 text-[10px] font-bold uppercase rounded-lg text-[#908fa0] hover:text-[#e3e2e3] transition-colors" data-r="90">90d</button>
-      <button class="cfilt px-3 py-1.5 text-[10px] font-bold uppercase rounded-lg bg-[#c0c1ff] text-[#1000a9] transition-colors" data-r="all">All</button>
+    <div class="flex gap-1 p-1 bg-[#0d0e0f] rounded-xl border border-[rgba(70,69,84,0.15)] no-print" id="filters" role="tablist" aria-label="Chart range">
+      <button type="button" role="tab" aria-selected="false" class="cfilt px-3 py-1.5 text-[10px] font-bold uppercase rounded-lg text-[#908fa0] hover:text-[#e3e2e3] transition-colors" data-r="7">7d</button>
+      <button type="button" role="tab" aria-selected="false" class="cfilt px-3 py-1.5 text-[10px] font-bold uppercase rounded-lg text-[#908fa0] hover:text-[#e3e2e3] transition-colors" data-r="30">30d</button>
+      <button type="button" role="tab" aria-selected="false" class="cfilt px-3 py-1.5 text-[10px] font-bold uppercase rounded-lg text-[#908fa0] hover:text-[#e3e2e3] transition-colors" data-r="90">90d</button>
+      <button type="button" role="tab" aria-selected="true" class="cfilt px-3 py-1.5 text-[10px] font-bold uppercase rounded-lg bg-[#c0c1ff] text-[#1000a9] transition-colors" data-r="all">All</button>
     </div>
   </div>
-  <svg id="cost-chart-svg" viewBox="0 0 900 200" preserveAspectRatio="xMidYMid meet"></svg>
+  <svg id="cost-chart-svg" viewBox="0 0 900 200" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Daily cost and cache efficiency trend"></svg>
 </section>
 
 <!-- 5. SESSION INTELLIGENCE + MODEL DISTRIBUTION -->
@@ -426,7 +515,11 @@ ${inflection && inflection.multiplier >= 1.5 ? `
           </div>`).join('')}
         </div>
       </div>` : ''}
-    </div>` : ''}
+    </div>` : `
+    <div class="bg-[#1b1c1d] p-8 rounded-xl border border-[rgba(70,69,84,0.15)]">
+      <h3 class="text-xl font-bold text-[#e3e2e3] mb-2">Session Intelligence</h3>
+      <p class="text-sm text-[#908fa0] leading-relaxed">No session metadata found. Claude Code writes session stats under <span class="font-mono text-[#c7c4d7]">~/.claude/usage-data/session-meta/</span> as you work. Use Claude Code for a few sessions, then run CC Hubber again.</p>
+    </div>`}
 
     <!-- 6. ACTIVITY HEATMAP -->
     ${sessionIntel?.hourDistribution ? `
@@ -624,6 +717,22 @@ ${multiTool.map(tool => {
 </section>
 ` : ''}
 
+${crossToolSynthesis?.available && crossToolSynthesis.insights?.length ? `
+<section class="bg-[#1b1c1d] rounded-xl border border-[rgba(70,69,84,0.15)] overflow-hidden" aria-label="Cross-tool insights">
+  <div class="px-8 py-6 border-b border-[rgba(70,69,84,0.15)]">
+    <h3 class="text-xl font-bold text-[#e3e2e3]">Cross-tool synthesis</h3>
+    <p class="text-xs text-[#908fa0] mt-1">Heuristic patterns across AI tools on this machine</p>
+  </div>
+  <div class="px-8 py-6 space-y-4">
+    ${crossToolSynthesis.insights.map((ins) => `
+    <div class="border-l-2 border-[#d4bbff] pl-4">
+      <p class="text-sm font-semibold text-[#e3e2e3]">${esc(ins.title)}</p>
+      <p class="text-xs text-[#908fa0] mt-1 leading-relaxed">${esc(ins.detail)}</p>
+    </div>`).join('')}
+  </div>
+</section>
+` : ''}
+
 <!-- 8. PROJECTS TABLE -->
 ${projectBreakdown && projectBreakdown.length > 0 ? `
 <section class="bg-[#1b1c1d] rounded-xl border border-[rgba(70,69,84,0.15)] overflow-hidden">
@@ -654,7 +763,7 @@ ${anomalies.hasAnomalies ? `
 <section class="bg-[#1b1c1d] rounded-xl border border-[rgba(70,69,84,0.15)] overflow-hidden">
   <div class="px-8 py-6 border-b border-[rgba(70,69,84,0.15)] flex justify-between items-center">
     <h3 class="text-xl font-bold text-[#e3e2e3]">Detected Anomalies</h3>
-    <span class="material-symbols-outlined text-[#ffb4ab] animate-pulse">warning</span>
+    <span class="material-symbols-outlined text-[#ffb4ab] animate-pulse" aria-hidden="true">warning</span>
   </div>
   <div class="overflow-x-auto">
     <table class="w-full text-left">
@@ -767,7 +876,7 @@ ${cacheHealth.totalCacheBreaks > 0 ? `
 <!-- 12. FOOTER -->
 <footer class="w-full py-12 border-t border-[rgba(70,69,84,0.05)]">
   <div class="max-w-[1200px] mx-auto px-6 text-center">
-    <span class="text-[10px] tracking-widest uppercase text-[#908fa0]"><a href="https://github.com/azkhh/cchubber" target="_blank" style="text-decoration:none;color:inherit;">CC Hubber</a> &middot; shipped fast with <a href="https://moveros.dev" target="_blank" style="text-decoration:none;color:inherit;">Mover OS</a></span>
+    <span class="text-[10px] tracking-widest uppercase text-[#908fa0]"><a href="https://github.com/AppleLamps/cchubber" target="_blank" style="text-decoration:none;color:inherit;">CC Hubber</a> &middot; shipped fast with <a href="https://moveros.dev" target="_blank" style="text-decoration:none;color:inherit;">Mover OS</a></span>
   </div>
 </footer>
 
@@ -812,7 +921,11 @@ ${cacheHealth.totalCacheBreaks > 0 ? `
   // Project table
   var ptb=document.querySelector('#proj-tbl tbody');
   if(ptb&&P.length>0){
-    P.sort(function(a,b){return(b.output/1e6*OUT+b.cacheRead/1e6*CACHE_R)-(a.output/1e6*OUT+a.cacheRead/1e6*CACHE_R)});
+    function pcost(p){
+      if(typeof p.estimatedCost==='number'&&p.estimatedCost>0)return p.estimatedCost;
+      return p.output/1e6*OUT+p.cacheRead/1e6*CACHE_R+p.input/1e6*INP+p.cacheWrite/1e6*CW;
+    }
+    P.sort(function(a,b){return pcost(b)-pcost(a)});
     var h='';
     for(var i=0;i<P.length;i++){
       var p=P[i];
@@ -820,7 +933,7 @@ ${cacheHealth.totalCacheBreaks > 0 ? `
       h+='<td class="px-8 py-4 text-sm font-semibold text-[#e3e2e3]"><span class="proj-name">'+p.name+'</span>';
       if(p.path)h+='<br><span class="proj-path text-[10px] text-[#908fa0] font-mono">'+p.path+'</span>';
       h+='</td>';
-      var projCost=p.output/1e6*OUT+p.cacheRead/1e6*CACHE_R+p.input/1e6*INP+p.cacheWrite/1e6*CW;
+      var projCost=pcost(p);
       h+='<td class="px-8 py-4 font-mono text-sm text-[#c7c4d7]">'+p.messages.toLocaleString()+'</td>';
       h+='<td class="px-8 py-4 font-mono text-sm text-[#c7c4d7]">'+p.sessions+'</td>';
       h+='<td class="px-8 py-4 font-mono text-sm text-[#c7c4d7] text-right">'+fc(projCost)+'</td>';
@@ -831,8 +944,8 @@ ${cacheHealth.totalCacheBreaks > 0 ? `
     ptb.innerHTML=h;
   }
 
-  // Chart
-  var W=900,H=200,PD={t:24,r:16,b:40,l:56};
+  // Chart (dual: cost + cache efficiency ratio)
+  var W=900,H=200,PD={t:24,r:48,b:40,l:56};
   var cW=W-PD.l-PD.r,cH=H-PD.t-PD.b;
   var svg=document.getElementById('cost-chart-svg');
   var tt=document.getElementById('tt'),ttd=document.getElementById('tt-d'),ttc=document.getElementById('tt-c'),tta=document.getElementById('tt-a');
@@ -843,14 +956,17 @@ ${cacheHealth.totalCacheBreaks > 0 ? `
     if(!svg)return;
     if(!d.length){svg.innerHTML='<text x="450" y="100" text-anchor="middle" fill="#908fa0" font-size="13" font-family="Inter,sans-serif">No data</text>';return}
     var mx=Math.max.apply(null,d.map(function(x){return x.cost}))*1.1;if(mx<0.01)mx=1;
+    var ratioMx=Math.max.apply(null,d.map(function(x){return x.cacheOutputRatio||0}))*1.1;if(ratioMx<1)ratioMx=1;
     var s='';
     // grid lines
     for(var i=0;i<=3;i++){
       var y=PD.t+(cH/3)*i,v=mx-(mx/3)*i;
       s+='<line x1="'+PD.l+'" y1="'+y+'" x2="'+(W-PD.r)+'" y2="'+y+'" stroke="rgba(70,69,84,0.15)" stroke-width="1"/>';
       s+='<text x="'+(PD.l-10)+'" y="'+(y+4)+'" text-anchor="end" fill="#908fa0" font-size="9" font-family="JetBrains Mono,monospace">$'+(v<1?v.toFixed(2):Math.round(v))+'</text>';
+      var rv=ratioMx-(ratioMx/3)*i;
+      s+='<text x="'+(W-6)+'" y="'+(y+4)+'" text-anchor="end" fill="#d4bbff" font-size="8" font-family="JetBrains Mono,monospace" opacity="0.9">'+Math.round(rv)+':1</text>';
     }
-    // area + line
+    // area + line (cost)
     var step=d.length>1?cW/(d.length-1):0;
     var pts=d.map(function(x,j){return{x:PD.l+(d.length===1?cW/2:j*step),y:PD.t+cH-(x.cost/mx)*cH}});
     var lp='M '+pts[0].x+' '+pts[0].y;
@@ -861,6 +977,14 @@ ${cacheHealth.totalCacheBreaks > 0 ? `
     s+='<defs><linearGradient id="ag" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#c0c1ff" stop-opacity="0.3"/><stop offset="100%" stop-color="#c0c1ff" stop-opacity="0"/></linearGradient></defs>';
     s+='<path d="'+ap+'" fill="url(#ag)"/>';
     s+='<path d="'+lp+'" fill="none" stroke="#c0c1ff" stroke-width="2" stroke-linecap="round"/>';
+    // dashed: cache efficiency (read/output)
+    var rp=d.map(function(x,j){
+      var r=x.cacheOutputRatio||0;
+      return {x:PD.l+(d.length===1?cW/2:j*step),y:PD.t+cH-(r/ratioMx)*cH};
+    });
+    var rlp='M '+rp[0].x+' '+rp[0].y;
+    for(var j=1;j<rp.length;j++){var cx2=(rp[j-1].x+rp[j].x)/2;rlp+=' C '+cx2+' '+rp[j-1].y+' '+cx2+' '+rp[j].y+' '+rp[j].x+' '+rp[j].y}
+    s+='<path d="'+rlp+'" fill="none" stroke="#d4bbff" stroke-width="1.5" stroke-dasharray="5 4" stroke-linecap="round" opacity="0.95"/>';
     // x labels
     var every=Math.max(1,Math.floor(d.length/8));
     d.forEach(function(x,j){
@@ -875,13 +999,14 @@ ${cacheHealth.totalCacheBreaks > 0 ? `
     // hover targets
     d.forEach(function(x,j){
       var px=PD.l+(d.length===1?cW/2:j*step),py=PD.t+cH-(x.cost/mx)*cH;
-      s+='<circle cx="'+px+'" cy="'+py+'" r="14" fill="transparent" data-d="'+x.date+'" data-c="'+x.cost+'" data-a="'+(x.isAnomaly?1:0)+'" class="hov" style="cursor:crosshair"/>';
+      var rq=Math.round(x.cacheOutputRatio||0);
+      s+='<circle cx="'+px+'" cy="'+py+'" r="14" fill="transparent" data-d="'+x.date+'" data-c="'+x.cost+'" data-q="'+rq+'" data-a="'+(x.isAnomaly?1:0)+'" class="hov" style="cursor:crosshair"/>';
     });
     svg.innerHTML=s;
     svg.querySelectorAll('.hov').forEach(function(el){
       el.addEventListener('mouseenter',function(e){
         ttd.textContent=e.target.dataset.d;
-        ttc.textContent=fc(parseFloat(e.target.dataset.c));
+        ttc.textContent=fc(parseFloat(e.target.dataset.c))+' · '+e.target.dataset.q+':1 eff.';
         tta.textContent=e.target.dataset.a==='1'?'ANOMALY':'';
         tta.style.display=e.target.dataset.a==='1'?'block':'none';
         tt.classList.add('on');
@@ -912,11 +1037,13 @@ ${cacheHealth.totalCacheBreaks > 0 ? `
     }
     // Update filter button states - Stitch style
     document.querySelectorAll('.cfilt').forEach(function(b){
-      if(b.dataset.r===r){
+      var on=b.dataset.r===r;
+      if(on){
         b.style.background='#c0c1ff';b.style.color='#1000a9';
       } else {
         b.style.background='transparent';b.style.color='#908fa0';
       }
+      b.setAttribute('aria-selected',on?'true':'false');
     });
   }
 
@@ -1158,7 +1285,7 @@ ${cacheHealth.totalCacheBreaks > 0 ? `
   var gradeColors = {A:'#10b981',B:'#22d3ee',C:'#f59e0b',D:'#f97316',F:'#ef4444'};
   var stats = ${JSON.stringify(report.communityStats || null)};
 
-  (function(stats){
+  function initCommunity(stats){
     if(!stats || !stats.totalReports) return;
       var sec = document.getElementById('community-section');
       if(!sec || !stats.totalReports) return;
@@ -1234,7 +1361,15 @@ ${cacheHealth.totalCacheBreaks > 0 ? `
         html += '</tr>';
       });
       tbody.innerHTML = html;
-  })(stats);
+  }
+  if(stats && stats.totalReports){
+    function runComm(){ initCommunity(stats); }
+    if('requestIdleCallback' in window){
+      requestIdleCallback(runComm,{timeout:2500});
+    } else {
+      setTimeout(runComm, 80);
+    }
+  }
 })();
 </script>
 </body>

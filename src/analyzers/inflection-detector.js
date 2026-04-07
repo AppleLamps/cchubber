@@ -2,25 +2,31 @@
  * Inflection Point Detection
  * Finds BOTH the worst degradation AND best improvement in cache efficiency.
  * Prioritizes degradation — that's what users care about ("why is my usage draining?").
+ *
+ * Uses 7-day sliding windows with a minimum day count per side to reduce noise.
  */
+const MIN_DAYS_PER_SIDE = 4;
+const MIN_TOTAL_DAYS = 9;
+const MIN_MULTIPLIER = 1.5;
+
 export function detectInflectionPoints(dailyFromJSONL) {
-  if (!dailyFromJSONL || dailyFromJSONL.length < 5) return null;
+  if (!dailyFromJSONL || dailyFromJSONL.length < MIN_TOTAL_DAYS) return null;
 
   const sorted = [...dailyFromJSONL]
     .filter(d => d.outputTokens > 0)
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  if (sorted.length < 5) return null;
+  if (sorted.length < MIN_TOTAL_DAYS) return null;
 
-  const minWindow = 3;
-  let worstDegradation = null;
-  let worstScore = 0;
+  const degradations = [];
   let bestImprovement = null;
   let bestScore = 0;
 
-  for (let i = minWindow; i <= sorted.length - minWindow; i++) {
+  for (let i = MIN_DAYS_PER_SIDE; i <= sorted.length - MIN_DAYS_PER_SIDE; i++) {
     const before = sorted.slice(Math.max(0, i - 7), i);
     const after = sorted.slice(i, Math.min(sorted.length, i + 7));
+
+    if (before.length < MIN_DAYS_PER_SIDE || after.length < MIN_DAYS_PER_SIDE) continue;
 
     const beforeRatio = computeRatio(before);
     const afterRatio = computeRatio(after);
@@ -28,27 +34,39 @@ export function detectInflectionPoints(dailyFromJSONL) {
     if (beforeRatio === 0 || afterRatio === 0) continue;
 
     if (afterRatio > beforeRatio) {
-      // Degradation (ratio went UP = worse)
       const mult = afterRatio / beforeRatio;
-      if (mult > worstScore && mult >= 1.5) {
-        worstScore = mult;
-        worstDegradation = buildResult(sorted[i].date, beforeRatio, afterRatio, mult, 'worsened', before.length, after.length);
+      if (mult >= MIN_MULTIPLIER) {
+        degradations.push(
+          buildResult(sorted[i].date, beforeRatio, afterRatio, mult, 'worsened', before.length, after.length),
+        );
       }
     } else {
-      // Improvement (ratio went DOWN = better)
       const mult = beforeRatio / afterRatio;
-      if (mult > bestScore && mult >= 1.5) {
+      if (mult > bestScore && mult >= MIN_MULTIPLIER) {
         bestScore = mult;
-        bestImprovement = buildResult(sorted[i].date, beforeRatio, afterRatio, mult, 'improved', before.length, after.length);
+        bestImprovement = buildResult(
+          sorted[i].date,
+          beforeRatio,
+          afterRatio,
+          mult,
+          'improved',
+          before.length,
+          after.length,
+        );
       }
     }
   }
 
-  // Return degradation as primary (that's the problem), improvement as secondary
-  const primary = worstDegradation || bestImprovement;
+  degradations.sort((a, b) => b.multiplier - a.multiplier);
+  const primary = degradations[0] || bestImprovement;
   if (!primary) return null;
 
-  primary.secondary = worstDegradation ? bestImprovement : null;
+  primary.secondary = degradations[0] ? bestImprovement : null;
+  primary.alternate = degradations.length > 1 ? degradations[1] : null;
+  primary.methodology =
+    '7-day sliding windows; at least 4 days with usage on each side of the split; multiplier ≥ ' +
+    MIN_MULTIPLIER;
+
   return primary;
 }
 
